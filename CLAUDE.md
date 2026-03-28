@@ -7,7 +7,7 @@ DealFlow is an autonomous AI shopping agent built for the Insforge x Qoder AI Ag
 
 ## Scope: Backend & Agent Logic Only
 This repo owns:
-- **InsForge Edge Functions** — the 4 Deno serverless agent functions
+- **InsForge Edge Functions** — 5 Deno serverless agent functions
 - **Database schema** — PostgreSQL tables + RLS + triggers
 - **Agent definitions** — trading algorithm, signal computation, LLM reasoning
 - **Documentation** — architecture, API contracts, deploy instructions
@@ -16,9 +16,15 @@ Frontend (React Native) is owned by a separate team member.
 
 ## Tech Stack
 - **Backend:** InsForge (PostgreSQL, Auth, Edge Functions, Realtime, Storage, AI Gateway)
-- **Edge Functions:** Deno runtime (`npm:@insforge/sdk`)
-- **LLM:** InsForge AI Gateway → `anthropic/claude-3.5-haiku`
+- **Edge Functions:** Deno runtime — **no SDK** (direct REST API calls, see note below)
+- **LLM:** InsForge AI Gateway → `anthropic/claude-3.5-haiku` via `POST /api/ai/chat/completion`
 - **Dev Tool:** Qoder (dynamic scraper generation at runtime)
+
+> **Note:** `npm:@insforge/sdk` has a broken internal dependency (`@insforge/shared-schemas@1.1.46`) that causes BOOT_FAILURE on the InsForge deployment platform. All functions use direct HTTP REST calls instead:
+> - DB: `GET|POST|PATCH /api/database/records/{table}`
+> - AI: `POST /api/ai/chat/completion` → response field is `text` (not `choices[0].message.content`)
+> - Realtime: WebSocket/Socket.IO only — notification-dispatcher logs events but cannot push via REST
+> - Inter-function HTTP calls cause `LOOP_DETECTED` — `confirm-buy` inlines buy logic instead of calling `buy-executor`
 
 ## InsForge Project
 - **OSS Host:** `https://nstb9s8d.us-west.insforge.app`
@@ -36,13 +42,15 @@ npx @insforge/cli secrets add ANON_KEY your_anon_key_here
 ## Project Structure
 ```
 insforge/functions/
-  price-scraper/index.js        — Scrapes product page, writes price_history
-  trading-agent/index.js        — Scoring engine + LLM reasoning, makes BUY/WATCH/HOLD
-  buy-executor/index.js         — Records transaction, updates status, deducts wallet
-  notification-dispatcher/index.js — Pushes realtime events to frontend channel
+  price-scraper/index.ts        — Scrapes product page, writes price_history
+  trading-agent/index.ts        — Scoring engine + LLM reasoning, sets pending_buy on BUY
+  confirm-buy/index.ts          — User-triggered: executes confirmed purchase
+  buy-executor/index.ts         — Records transaction, updates status, deducts wallet
+  notification-dispatcher/index.ts — Logs and returns realtime event payloads
 
 agents/
   trading-agent.md              — Agent definition, signals, deploy instructions
+  confirm-buy.md                — Confirm-buy agent definition
   price-scraper.md              — Scraper agent definition
   buy-executor.md               — Buy executor definition
   notification-dispatcher.md    — Notification agent definition
@@ -87,10 +95,11 @@ npx @insforge/cli secrets add INSFORGE_BASE_URL https://nstb9s8d.us-west.insforg
 npx @insforge/cli secrets add ANON_KEY your_anon_key_here
 
 # 4. Deploy all edge functions
+npx @insforge/cli functions deploy notification-dispatcher
+npx @insforge/cli functions deploy buy-executor
 npx @insforge/cli functions deploy price-scraper
 npx @insforge/cli functions deploy trading-agent
-npx @insforge/cli functions deploy buy-executor
-npx @insforge/cli functions deploy notification-dispatcher
+npx @insforge/cli functions deploy confirm-buy
 
 # 5. Verify
 npx @insforge/cli functions list
@@ -101,13 +110,22 @@ npx @insforge/cli functions list
 
 ## Testing Functions
 ```bash
-# Test scraper
+# 1. Scrape a fresh price
 npx @insforge/cli functions invoke price-scraper \
   --data '{"item_id": "uuid", "product_url": "https://amazon.com/dp/B08N5KWB9H"}'
 
-# Test trading agent
+# 2. Run the trading agent — returns decision + signals
 npx @insforge/cli functions invoke trading-agent \
   --data '{"item_id": "uuid"}'
+# On BUY: item status becomes 'pending_buy', buy_pending event fired
+
+# 3. Confirm the buy (user action)
+npx @insforge/cli functions invoke confirm-buy \
+  --data '{"item_id": "uuid"}'
+# Status becomes 'bought', budget deducted, buy_executed event fired
+
+# Cancel a pending buy (reset to watching)
+npx @insforge/cli db query "UPDATE wishlist_items SET status='watching' WHERE id='uuid'"
 
 # Check logs if something fails
 npx @insforge/cli logs function.logs
@@ -118,7 +136,7 @@ See `docs/api-contracts.md` for all Edge Function request/response shapes and re
 
 ## Realtime Channels (frontend needs these)
 ```
-dealflow:updates        — Global: agent_decision, price_update, buy_executed events
+dealflow:updates        — Global: buy_pending, agent_decision, price_update, buy_executed
 dealflow:user:{uid}     — Per-user notifications
 ```
 
@@ -126,7 +144,8 @@ Subscribe pattern (for frontend reference):
 ```ts
 await insforge.realtime.connect()
 await insforge.realtime.subscribe('dealflow:updates')
-insforge.realtime.on('agent_decision', handler)
+insforge.realtime.on('buy_pending', handler)     // Show confirmation UI
+insforge.realtime.on('agent_decision', handler)  // WATCH/HOLD decisions
 insforge.realtime.on('price_update', handler)
 insforge.realtime.on('buy_executed', handler)
 ```
