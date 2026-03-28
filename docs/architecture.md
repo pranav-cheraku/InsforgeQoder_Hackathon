@@ -4,16 +4,28 @@
 
 DealFlow is an autonomous AI shopping agent that monitors product prices using stock-market-style trading algorithms and auto-"buys" when prices hit optimal lows.
 
-> **Note:** This repo covers the **backend and agent logic only**. Frontend is handled by a separate teammate.
-
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                  Frontend (separate teammate)                    │
-│   @insforge/sdk — REST + WebSocket to InsForge                  │
+│                  Mobile App (React Native/Expo)                  │
+│   "drip." — talks to FastAPI backend at localhost:8000          │
 └──────────────────────┬──────────────────────────────────────────┘
-                       │ REST API + WebSockets
+                       │ REST API
 ┌──────────────────────▼──────────────────────────────────────────┐
-│                  InsForge Backend                                │
+│                  FastAPI Backend (Python)                         │
+│                                                                  │
+│  POST /items          — add product, Claude identifies it        │
+│  POST /items/{id}/scan — fetch live prices via Claude web_search │
+│  GET  /alerts         — surface agent buy recommendations        │
+│  POST /alerts/{id}/approve — user confirms buy                   │
+│  POST /search         — search for products via Claude           │
+│                                                                  │
+│  services/scraper.py  — Claude + web_search for live prices      │
+│  services/alert_engine.py — price drop detection, buy alerts     │
+│  services/identifier.py   — Claude normalizes product names      │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │ asyncpg / SQLAlchemy
+┌──────────────────────▼──────────────────────────────────────────┐
+│                  InsForge Backend                                 │
 │                                                                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────┐  │
 │  │  PostgreSQL   │  │     Auth      │  │      Realtime         │  │
@@ -21,93 +33,87 @@ DealFlow is an autonomous AI shopping agent that monitors product prices using s
 │  └──────────────┘  └──────────────┘  └───────────────────────┘  │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                  Edge Functions (Deno)                    │   │
+│  │              InsForge Edge Functions (Deno)               │   │
 │  │                                                           │   │
-│  │  price-scraper  →  trading-agent  →  [pending_buy]        │   │
-│  │                                        │                  │   │
-│  │                          user confirms → confirm-buy      │   │
-│  │                                        │                  │   │
-│  │                    buy-executor  ←──────┘                 │   │
-│  │                                        │                  │   │
-│  │                           notification-dispatcher         │   │
+│  │  trading-agent  →  [pending_buy]                          │   │
+│  │                         │                                 │   │
+│  │           user confirms → confirm-buy                     │   │
+│  │                         │                                 │   │
+│  │               buy-executor  ←──────┘                     │   │
+│  │                         │                                 │   │
+│  │              notification-dispatcher                      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                  │
-│  ┌──────────────┐  ┌──────────────────────────────────────┐     │
-│  │  AI Gateway   │  │            Storage                   │     │
-│  │  (Claude Haiku│  │  (product images)                    │     │
-│  └──────────────┘  └──────────────────────────────────────┘     │
+│  ┌──────────────┐                                                │
+│  │  AI Gateway   │  anthropic/claude-3.5-haiku (agent reasoning) │
+│  └──────────────┘                                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
 ```
-1. Frontend: User adds product URL + target price
-        │  POST /wishlist_items  (InsForge REST API auto-exposes this)
+1. User adds product name or URL in mobile app
+        │  POST /search or POST /items  (FastAPI)
         ▼
-2. Frontend invokes price-scraper
-   → Scrapes price from retailer HTML
-   → Writes price_history record
-   → Updates wishlist_items.current_price, product_name, image_url
-   → Publishes 'price_update' to dealflow:updates channel
+2. FastAPI scraper fetches live prices
+   → Claude (claude-sonnet-4-6) + web_search tool
+   → Finds prices across Amazon, eBay, Best Buy, Walmart
+   → Writes PriceSnapshot rows to PostgreSQL
+   → alert_engine checks for price drop vs target
         │
         ▼
-3. Frontend (or schedule) invokes trading-agent
-   → Loads price_history (last 30 records)
+3. User scans item (or auto-scan on open)
+   → POST /items/{id}/scan
+   → Synchronous Claude web_search — returns up to 5 retailer prices
+   → check_price_drop() fires alert if price ≤ target or dropped 10%+
+        │
+        ▼
+4. Activity screen polls GET /alerts
+   → Agent surfaces buy recommendation (requires_permission = true)
+   → User taps "Buy now" → POST /alerts/{id}/approve
+   → Returns order confirmation
+        │
+        ▼ (InsForge edge functions — invoked independently)
+5. trading-agent runs against price_history
    → Computes 4 weighted signals → composite score
    → Calls InsForge AI Gateway → Claude Haiku generates reasoning
-   → Decision: BUY (≥0.75 + below target) | WATCH (≥0.50) | HOLD
-   → On BUY: sets wishlist_items.status = 'pending_buy', publishes 'buy_pending'
-   → On WATCH/HOLD: publishes 'agent_decision' to dealflow:updates channel
+   → BUY (≥0.75 + below target): sets wishlist_items.status = 'pending_buy'
+   → WATCH/HOLD: publishes agent_decision event
         │
         ▼  (only on BUY — user receives buy_pending notification)
-4. User confirms purchase on frontend
-   → Frontend calls confirm-buy with item_id
-   → confirm-buy verifies status = 'pending_buy'
-   → Inserts transaction record
-   → Sets wishlist_items.status = 'bought'
-   → Deducts buy_price from users.budget
-   → Invokes notification-dispatcher
-        │
-        ▼
-5. notification-dispatcher publishes to realtime
-   → 'buy_executed' event → dealflow:updates + dealflow:user:{uid}
-        │
-        ▼
-6. Frontend (WebSocket listener) receives event
-   → Updates price chart, agent feed, portfolio stats in real time
+6. User confirms via confirm-buy edge function
+   → Verifies status = 'pending_buy'
+   → Inserts transaction, sets status = 'bought', deducts budget
+   → Fires buy_executed event via notification-dispatcher
 ```
+
+## Scraping: FastAPI vs InsForge
+
+Price scraping is handled entirely by the **FastAPI backend** (`backend/services/scraper.py`).
+
+| | FastAPI scraper | InsForge (removed) |
+|---|---|---|
+| Method | Claude + `web_search_20250305` tool | HTML regex parsing |
+| Amazon | Works | Blocked |
+| Retailers | All (5 at once) | Walmart, Target, Best Buy only |
+| Fallback | Claude training knowledge | ~~Demo drift prices~~ |
+
+The InsForge `price-scraper` edge function has been removed. All price data enters the system through the FastAPI backend.
 
 ## InsForge Feature Map
 
 | Feature | Usage |
 |---------|-------|
-| **PostgreSQL** | All data storage. Auto-exposed as REST API — zero endpoint code needed |
+| **PostgreSQL** | All data storage. Auto-exposed as REST API |
 | **Auth** | Email/password signup + sessions. RLS ties data to user |
-| **Edge Functions** | 4 Deno functions: scraper, agent, executor, notifier |
+| **Edge Functions** | 4 Deno functions: trading-agent, confirm-buy, buy-executor, notification-dispatcher |
 | **AI Gateway** | `anthropic/claude-3.5-haiku` — generates agent reasoning text |
-| **Realtime** | WebSocket push of price updates and agent decisions to frontend |
-| **Storage** | Product image thumbnails cached from scraper |
-
-## Qoder Integration (Killer Differentiator)
-
-Qoder is used in two ways:
-
-**1. As a development tool:** Generates code across all layers simultaneously.
-
-**2. As a runtime feature (unique):** When a user pastes a product URL from an unknown retailer, `price-scraper` calls Qoder's runtime API to:
-- Analyze the HTML structure of the page
-- Generate a custom price-extraction parser for that retailer
-- Cache the parser for future use
-
-This means DealFlow works with **any retailer** without pre-built scrapers — a feature no other team will have.
+| **Realtime** | WebSocket push of agent decisions to frontend |
 
 ## Edge Function Chain
 
 ```
-price-scraper
-  └─► updates DB + publishes price_update
-
 trading-agent
   ├─► reads price_history
   ├─► computes signals
@@ -116,7 +122,7 @@ trading-agent
   └─► (if WATCH/HOLD) publishes agent_decision
 
 confirm-buy  ← called by user via frontend
-  └─► delegates to buy-executor logic inline
+  └─► inlines buy-executor logic (no inter-function HTTP — LOOP_DETECTED)
 
 buy-executor  ← called directly for testing
   ├─► inserts transaction
@@ -125,7 +131,7 @@ buy-executor  ← called directly for testing
   └─► invokes notification-dispatcher
 
 notification-dispatcher
-  └─► publishes to realtime channels
+  └─► logs event, returns enriched payload (WebSocket push not available via REST)
 ```
 
 ## Team Responsibilities
@@ -133,5 +139,5 @@ notification-dispatcher
 | Area | Owner |
 |------|-------|
 | Agent Brain (trading-agent, buy-executor) | Person 1 (AI/ML) |
-| Backend Infra (DB, Edge Functions, Realtime) | Person 2 (Backend) — this repo |
-| Frontend UI (React Native) | Person 3 (Frontend) — separate repo |
+| Backend Infra (FastAPI, DB, Edge Functions) | Person 2 (Backend) — this repo |
+| Mobile UI (React Native) | Person 3 (Frontend) — mobile/ directory |

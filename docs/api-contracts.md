@@ -1,49 +1,184 @@
-# Edge Function API Contracts
+# API Contracts
 
-All functions are deployed to `https://nstb9s8d.us-west.insforge.app/functions/{slug}`.
+## FastAPI Backend (Mobile App)
 
-SDK invocation: `insforge.functions.invoke(slug, { body: {...} })`
+Base URL: `http://localhost:8000` (dev) / `EXPO_PUBLIC_API_URL`
 
 ---
 
-## `price-scraper`
-
-Scrapes a product URL for current price, updates the wishlist item, and writes a price_history record.
+### `POST /items`
+Add a product to the watchlist. Claude normalizes the name and triggers a background price scrape.
 
 **Request**
 ```json
 {
-  "item_id": "uuid",
-  "product_url": "https://amazon.com/dp/..."
+  "name": "Sony WH-1000XM5",
+  "url": "https://amazon.com/dp/B09XS7JWHH",
+  "target_price": 280.00
 }
 ```
 
 **Response (200)**
 ```json
 {
-  "price": 299.99,
-  "product_name": "Sony WH-1000XM4 Headphones",
-  "retailer": "amazon",
-  "image_url": "https://..."
+  "id": "uuid",
+  "name": "Sony WH-1000XM5 Wireless Headphones",
+  "subtitle": "Industry-leading noise canceling",
+  "image_emoji": "🎧",
+  "target_price": 280.00,
+  "best_price": null,
+  "avg_price": null,
+  "trend": "avg"
 }
 ```
 
-**Side effects:**
-- Inserts row in `price_history`
-- Updates `wishlist_items.current_price`, `.product_name`, `.retailer`, `.image_url`
-- Publishes `price_update` event to `dealflow:updates`
+---
+
+### `GET /items`
+List all watchlist items with latest prices.
+
+**Response (200)**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Sony WH-1000XM5 Wireless Headphones",
+    "subtitle": "Industry-leading noise canceling",
+    "image_emoji": "🎧",
+    "target_price": 280.00,
+    "best_price": 269.99,
+    "avg_price": 299.99,
+    "trend": "deal",
+    "sources": [
+      {
+        "source_name": "Amazon",
+        "source_url": "https://...",
+        "price": 269.99,
+        "availability": "in_stock"
+      }
+    ]
+  }
+]
+```
+
+**Trend values:** `"deal"` (best ≤ target) | `"low"` (best < avg) | `"avg"`
 
 ---
 
-## `trading-agent`
+### `DELETE /items/{id}`
+Remove item from watchlist.
 
-Analyzes price history for a product and makes a BUY / WATCH / HOLD decision.
+---
+
+### `POST /items/{id}/scan`
+Synchronously fetch fresh prices via Claude web_search, run alert checks.
+
+**Response (200)** — same shape as `GET /items` single item
+
+---
+
+### `GET /alerts`
+List undismissed alerts.
+
+**Response (200)**
+```json
+[
+  {
+    "id": "uuid",
+    "item_id": "uuid",
+    "alert_type": "target_price",
+    "message": "Price dropped to $269.99 — below your $280 target on Amazon",
+    "price": 269.99,
+    "source_name": "Amazon",
+    "source_url": "https://...",
+    "requires_permission": true,
+    "dismissed": false,
+    "created_at": "2026-03-29T12:00:00Z"
+  }
+]
+```
+
+**Alert types:** `"target_price"` (price ≤ target) | `"price_drop"` (dropped ≥10% from last snapshot)
+
+---
+
+### `POST /alerts/{id}/dismiss`
+Dismiss an alert without buying.
+
+---
+
+### `POST /alerts/{id}/approve`
+User confirms the buy. Returns order confirmation.
+
+**Response (200)**
+```json
+{
+  "order_id": "DRP-4821",
+  "item_name": "Sony WH-1000XM5 Wireless Headphones",
+  "price": 269.99,
+  "source": "Amazon",
+  "estimated_delivery": "2 business days"
+}
+```
+
+---
+
+### `GET /prices/{item_id}/history`
+Last 30 price snapshots grouped by source.
+
+**Response (200)**
+```json
+{
+  "Amazon": [
+    { "price": 269.99, "scraped_at": "2026-03-29T12:00:00Z" }
+  ],
+  "Best Buy": [
+    { "price": 279.99, "scraped_at": "2026-03-29T12:00:00Z" }
+  ]
+}
+```
+
+---
+
+### `POST /search`
+Search for products to add.
 
 **Request**
 ```json
-{
-  "item_id": "uuid"
-}
+{ "query": "noise canceling headphones under 300" }
+```
+
+**Response (200)**
+```json
+[
+  {
+    "name": "Sony WH-1000XM5",
+    "subtitle": "Industry-leading noise canceling",
+    "image_emoji": "🎧",
+    "price": 279.99,
+    "source_name": "Amazon",
+    "source_url": "https://..."
+  }
+]
+```
+
+---
+
+## InsForge Edge Functions
+
+All functions deployed to `https://nstb9s8d.us-west.insforge.app/functions/{slug}`.
+
+> **Note:** Price scraping is handled by the FastAPI backend. The InsForge `price-scraper` function has been removed. Edge functions below operate on price data already in the database.
+
+---
+
+### `trading-agent`
+
+Analyzes price history and makes a BUY / WATCH / HOLD decision.
+
+**Request**
+```json
+{ "item_id": "uuid" }
 ```
 
 **Response (200)**
@@ -65,25 +200,23 @@ Analyzes price history for a product and makes a BUY / WATCH / HOLD decision.
 
 **Side effects (on BUY):**
 - Sets `wishlist_items.status = 'pending_buy'`
-- Publishes `buy_pending` event to `dealflow:updates` — frontend must show confirmation UI
+- Publishes `buy_pending` event
 
 **Side effects (on WATCH / HOLD):**
-- Publishes `agent_decision` event to `dealflow:updates`
+- Publishes `agent_decision` event
 
 **Error responses:**
-- `409` — item status is not `'watching'` (e.g. already `pending_buy` or `bought`)
+- `409` — item status is not `'watching'`
 
 ---
 
-## `confirm-buy`
+### `confirm-buy`
 
 Executes a purchase the user has confirmed. Item must be in `pending_buy` status.
 
 **Request**
 ```json
-{
-  "item_id": "uuid"
-}
+{ "item_id": "uuid" }
 ```
 
 **Response (200)**
@@ -100,7 +233,7 @@ Executes a purchase the user has confirmed. Item must be in `pending_buy` status
 - Inserts row in `transactions`
 - Sets `wishlist_items.status = 'bought'`
 - Deducts `buy_price` from `users.budget`
-- Publishes `buy_executed` event to `dealflow:updates`
+- Publishes `buy_executed` event
 
 **Error responses:**
 - `404` — item not found
@@ -114,9 +247,9 @@ PATCH /api/database/records/wishlist_items?id=eq.{item_id}
 
 ---
 
-## `buy-executor`
+### `buy-executor`
 
-Records a completed purchase. Can be called directly for testing/demo purposes.
+Records a completed purchase. Used directly for testing.
 
 **Request**
 ```json
@@ -139,17 +272,11 @@ Records a completed purchase. Can be called directly for testing/demo purposes.
 }
 ```
 
-**Side effects:**
-- Inserts row in `transactions`
-- Sets `wishlist_items.status = 'bought'`
-- Deducts `buy_price` from `users.budget`
-- Invokes `notification-dispatcher`
-
 ---
 
-## `notification-dispatcher`
+### `notification-dispatcher`
 
-Publishes an event to the realtime channel. Called by `buy-executor` and `trading-agent`.
+Publishes an event to the realtime channel.
 
 **Request**
 ```json
@@ -174,14 +301,13 @@ Publishes an event to the realtime channel. Called by `buy-executor` and `tradin
 }
 ```
 
-**Event types:** `"buy_executed"` | `"price_alert"` | `"agent_decision"` | `"buy_pending"`
+**Event types:** `"buy_executed"` | `"agent_decision"` | `"buy_pending"`
 
 ---
 
 ## Realtime Event Schemas
 
 ### `buy_pending`
-Fired when trading-agent decides BUY and is awaiting user confirmation.
 ```json
 {
   "item_id": "uuid",
@@ -190,14 +316,13 @@ Fired when trading-agent decides BUY and is awaiting user confirmation.
   "event_type": "buy_pending",
   "proposed_price": 279.99,
   "market_price": 349.99,
-  "composite_score": 0.9943,
-  "reasoning": "Price at $279.99 is at or below your $298 target...",
+  "composite_score": 0.89,
+  "reasoning": "Price at $279.99 is below your $298 target...",
   "timestamp": "2026-03-29T12:00:00Z"
 }
 ```
 
 ### `agent_decision`
-Fired for WATCH and HOLD decisions only.
 ```json
 {
   "item_id": "uuid",
@@ -206,15 +331,6 @@ Fired for WATCH and HOLD decisions only.
   "composite_score": 0.72,
   "reasoning": "...",
   "timestamp": "2026-03-29T12:00:00Z"
-}
-```
-
-### `price_update`
-```json
-{
-  "item_id": "uuid",
-  "price": 279.99,
-  "retailer": "amazon"
 }
 ```
 

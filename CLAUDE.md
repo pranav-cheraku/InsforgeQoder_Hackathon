@@ -7,7 +7,7 @@ DealFlow is an autonomous AI shopping agent built for the Insforge x Qoder AI Ag
 
 ## Scope: Backend & Agent Logic Only
 This repo owns:
-- **InsForge Edge Functions** — 5 Deno serverless agent functions
+- **InsForge Edge Functions** — 4 Deno serverless agent functions
 - **Database schema** — PostgreSQL tables + RLS + triggers
 - **Agent definitions** — trading algorithm, signal computation, LLM reasoning
 - **Documentation** — architecture, API contracts, deploy instructions
@@ -42,7 +42,6 @@ npx @insforge/cli secrets add ANON_KEY your_anon_key_here
 ## Project Structure
 ```
 insforge/functions/
-  price-scraper/index.ts        — Scrapes product page, writes price_history
   trading-agent/index.ts        — Scoring engine + LLM reasoning, sets pending_buy on BUY
   confirm-buy/index.ts          — User-triggered: executes confirmed purchase
   buy-executor/index.ts         — Records transaction, updates status, deducts wallet
@@ -51,7 +50,6 @@ insforge/functions/
 agents/
   trading-agent.md              — Agent definition, signals, deploy instructions
   confirm-buy.md                — Confirm-buy agent definition
-  price-scraper.md              — Scraper agent definition
   buy-executor.md               — Buy executor definition
   notification-dispatcher.md    — Notification agent definition
 
@@ -97,7 +95,6 @@ npx @insforge/cli secrets add ANON_KEY your_anon_key_here
 # 4. Deploy all edge functions
 npx @insforge/cli functions deploy notification-dispatcher
 npx @insforge/cli functions deploy buy-executor
-npx @insforge/cli functions deploy price-scraper
 npx @insforge/cli functions deploy trading-agent
 npx @insforge/cli functions deploy confirm-buy
 
@@ -110,11 +107,7 @@ npx @insforge/cli functions list
 
 ## Testing Functions
 ```bash
-# 1. Scrape a fresh price
-npx @insforge/cli functions invoke price-scraper \
-  --data '{"item_id": "uuid", "product_url": "https://amazon.com/dp/B08N5KWB9H"}'
-
-# 2. Run the trading agent — returns decision + signals
+# 1. Run the trading agent — returns decision + signals
 npx @insforge/cli functions invoke trading-agent \
   --data '{"item_id": "uuid"}'
 # On BUY: item status becomes 'pending_buy', buy_pending event fired

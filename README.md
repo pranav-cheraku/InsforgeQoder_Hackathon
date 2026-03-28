@@ -8,71 +8,100 @@ Autonomous AI shopping agent for the **Insforge x Qoder AI Agent Hackathon** (Se
 
 ## What This Repo Contains
 
-This repo owns the **backend and agent logic**. Frontend is a separate teammate.
-
 ```
-insforge/functions/       Edge Function stubs — implement these
-  price-scraper/          Scrape prices, write price_history
-  trading-agent/          Compute signals, make BUY/WATCH/HOLD, call LLM
-  buy-executor/           Record transaction, update wallet
-  notification-dispatcher Push realtime events to frontend
+backend/                  Python FastAPI — what the mobile app talks to
+  main.py                 App entry, table setup, router mounts
+  services/scraper.py     Claude + web_search for live prices
+  services/alert_engine.py Price drop detection, buy alerts
+  services/identifier.py  Claude normalizes product names
+  routes/                 items, alerts, prices, search
 
-agents/                   Agent specs (what each function should do)
+mobile/                   React Native (Expo) — "drip." app
+  src/api/client.ts       All API calls to FastAPI backend
+  src/screens/            Wishlist, Deals, Activity, ItemDetail, Search
+
+insforge/functions/       InsForge Edge Functions (Deno) — trading agent pipeline
+  trading-agent/          Compute signals, BUY/WATCH/HOLD, call LLM
+  confirm-buy/            User-triggered purchase execution
+  buy-executor/           Record transaction, update wallet
+  notification-dispatcher Log and return realtime event payloads
+
+agents/                   Agent specs for InsForge edge functions
 docs/                     Architecture, schema, algorithm, API contracts
 ```
 
 ---
 
-## Before You Start Coding
+## Running the Backend
 
-### 1. Verify InsForge auth
 ```bash
-npx @insforge/cli whoami
-npx @insforge/cli current
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+# Runs at http://localhost:8000
 ```
 
-### 2. Set up the database
-```bash
-npx @insforge/cli db import docs/database-setup.sql
+Requires `.env`:
 ```
-
-### 3. Add secrets (required by edge functions)
-```bash
-npx @insforge/cli secrets add INSFORGE_BASE_URL https://nstb9s8d.us-west.insforge.app
-npx @insforge/cli secrets add ANON_KEY your_anon_key_here
-```
-> Get the anon key from: InsForge Dashboard → Settings → API Keys
-
-### 4. Deploy function stubs to confirm setup works
-```bash
-npx @insforge/cli functions deploy price-scraper
-npx @insforge/cli functions deploy trading-agent
-npx @insforge/cli functions deploy buy-executor
-npx @insforge/cli functions deploy notification-dispatcher
-npx @insforge/cli functions list
+DATABASE_URL=postgresql+asyncpg://...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ---
 
-## Implement Each Function
+## Running the Mobile App
 
-Work through the `// TODO` comments in each file. The agent MDs have the full spec.
-
-| Function | Spec | File |
-|----------|------|------|
-| `price-scraper` | `agents/price-scraper.md` | `insforge/functions/price-scraper/index.js` |
-| `trading-agent` | `agents/trading-agent.md` | `insforge/functions/trading-agent/index.js` |
-| `buy-executor` | `agents/buy-executor.md` | `insforge/functions/buy-executor/index.js` |
-| `notification-dispatcher` | `agents/notification-dispatcher.md` | `insforge/functions/notification-dispatcher/index.js` |
-
-### Deploy after each change
 ```bash
-npx @insforge/cli functions deploy <slug>
+cd mobile
+npm install
+npx expo start
+```
 
-# Test it
-npx @insforge/cli functions invoke <slug> --data '{"item_id": "..."}'
+Set `EXPO_PUBLIC_API_URL=http://localhost:8000` in `mobile/.env` (or use the default).
 
-# Check logs if something breaks
+---
+
+## InsForge Edge Functions
+
+Scraping is handled by the FastAPI backend. The 4 InsForge edge functions run the trading agent pipeline independently.
+
+### Deploy
+
+```bash
+npx @insforge/cli whoami
+npx @insforge/cli current
+
+# Set up database
+npx @insforge/cli db import docs/database-setup.sql
+
+# Secrets
+npx @insforge/cli secrets add INSFORGE_BASE_URL https://nstb9s8d.us-west.insforge.app
+npx @insforge/cli secrets add ANON_KEY your_anon_key_here
+
+# Deploy
+npx @insforge/cli functions deploy notification-dispatcher
+npx @insforge/cli functions deploy buy-executor
+npx @insforge/cli functions deploy trading-agent
+npx @insforge/cli functions deploy confirm-buy
+
+npx @insforge/cli functions list
+```
+
+### Test
+
+```bash
+# Run the trading agent
+npx @insforge/cli functions invoke trading-agent \
+  --data '{"item_id": "uuid"}'
+
+# Confirm a pending buy
+npx @insforge/cli functions invoke confirm-buy \
+  --data '{"item_id": "uuid"}'
+
+# Cancel a pending buy
+npx @insforge/cli db query "UPDATE wishlist_items SET status='watching' WHERE id='uuid'"
+
+# Logs
 npx @insforge/cli logs function.logs
 ```
 
@@ -85,35 +114,5 @@ npx @insforge/cli logs function.logs
 | `docs/architecture.md` | Full system diagram and data flow |
 | `docs/database-schema.md` | Table schemas and RLS policies |
 | `docs/trading-algorithm.md` | Signal math, weights, decision thresholds |
-| `docs/api-contracts.md` | Request/response shapes (share with frontend teammate) |
+| `docs/api-contracts.md` | FastAPI + InsForge request/response shapes |
 | `docs/database-setup.sql` | All SQL to run via InsForge CLI |
-
----
-
-## InsForge SDK (inside edge functions)
-
-```js
-import { createClient } from 'npm:@insforge/sdk'
-
-const client = createClient({
-  baseUrl: Deno.env.get('INSFORGE_BASE_URL'),
-  edgeFunctionToken: req.headers.get('Authorization')?.replace('Bearer ', ''),
-})
-
-// Database
-const { data, error } = await client.database.from('wishlist_items').select('*').eq('id', id)
-
-// AI Gateway
-const completion = await client.ai.chat.completions.create({
-  model: 'anthropic/claude-3.5-haiku',
-  messages: [{ role: 'user', content: '...' }],
-})
-
-// Realtime publish
-await client.realtime.connect()
-await client.realtime.subscribe('dealflow:updates')
-await client.realtime.publish('dealflow:updates', 'agent_decision', { ... })
-
-// Invoke another function
-await client.functions.invoke('buy-executor', { body: { ... } })
-```
