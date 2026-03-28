@@ -1,39 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MapPin, ShoppingBag } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
 
 import { colors, fonts, radius, spacing } from '../theme/colors';
-import type { Transaction } from '../types';
+import type { WishlistItem } from '../types';
 import { api } from '../services/api';
-import { insforge } from '../services/insforge';
 import { useAuth } from '../context/AuthContext';
-
-function PulseDot({ color }: { color: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.4, duration: 750, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 750, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [scale]);
-
-  return (
-    <Animated.View style={[styles.dot, { backgroundColor: color, transform: [{ scale }] }]} />
-  );
-}
 
 function formatTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -45,36 +25,25 @@ function formatTime(iso: string): string {
 }
 
 export const ActivityScreen = () => {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [boughtItems, setBoughtItems] = useState<WishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const navigation = useNavigation();
 
-  const loadTransactions = useCallback(() => {
+  const loadBought = useCallback(() => {
     if (!user) return;
-    api.transactions.getAll(user.id).then(setTransactions).catch(console.error);
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    api.transactions.getAll(user.id)
-      .then(setTransactions)
+    api.wishlist.getAll(user.id)
+      .then((items) => setBoughtItems(items.filter((i) => i.status === 'bought')))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [user]);
 
-  // Refresh on buy_executed realtime event
+  useEffect(() => { loadBought(); }, [loadBought]);
+
   useEffect(() => {
-    if (!user) return;
-    const channel = `snag:user:${user.id}`;
-    insforge.realtime.connect().then(() => {
-      insforge.realtime.subscribe(channel);
-      insforge.realtime.on('buy_executed', loadTransactions);
-    }).catch(console.error);
-    return () => {
-      insforge.realtime.off('buy_executed', loadTransactions);
-      insforge.realtime.unsubscribe(channel);
-    };
-  }, [user, loadTransactions]);
+    const unsubscribe = navigation.addListener('focus', loadBought);
+    return unsubscribe;
+  }, [navigation, loadBought]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -88,41 +57,38 @@ export const ActivityScreen = () => {
           <View style={styles.center}>
             <ActivityIndicator color={colors.primary} />
           </View>
-        ) : transactions.length === 0 ? (
+        ) : boughtItems.length === 0 ? (
           <View style={styles.center}>
             <ShoppingBag size={32} color={colors.mutedForeground} />
             <Text style={styles.emptyText}>
-              No purchases yet.{'\n'}The agent will buy when prices hit your targets.
+              No purchases yet.{'\n'}Tap the bag icon on any item to buy it.
             </Text>
           </View>
         ) : (
           <>
             <Text style={styles.sectionLabel}>Purchase History</Text>
             <View style={styles.activityList}>
-              {transactions.map((tx) => {
-                const name = tx.wishlist_items?.product_name ?? 'Item';
-                const saved = tx.saved_amount > 0 ? ` · saved $${tx.saved_amount.toFixed(2)}` : '';
-                const dotColor = tx.saved_amount > 10 ? colors.dealGreen : colors.primary;
+              {boughtItems.map((item) => {
+                const name = item.product_name ?? 'Item';
+                const price = item.current_price > 0 ? `$${item.current_price.toFixed(2)}` : '—';
+                const retailer = item.retailer ?? null;
 
                 return (
-                  <View key={tx.id} style={styles.activityRow}>
-                    <View style={styles.dotWrapper}>
-                      <PulseDot color={dotColor} />
+                  <View key={item.id} style={styles.activityRow}>
+                    <View style={styles.thumbSmall}>
+                      <Text style={styles.thumbText}>
+                        {name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)}
+                      </Text>
                     </View>
                     <View style={styles.activityContent}>
-                      <Text style={styles.activityText}>
-                        <Text style={styles.activityTitle}>{name}</Text>
-                        {'  '}
-                        <Text style={styles.activityDesc}>
-                          bought for ${tx.buy_price.toFixed(2)}{saved}
-                        </Text>
+                      <Text style={styles.activityTitle} numberOfLines={1}>{name}</Text>
+                      <Text style={styles.activityDesc}>
+                        {price}{retailer ? ` · ${retailer}` : ''}
                       </Text>
-                      {tx.reasoning && (
-                        <View style={styles.reasoningCard}>
-                          <Text style={styles.reasoningText} numberOfLines={3}>{tx.reasoning}</Text>
-                        </View>
-                      )}
-                      <Text style={styles.activityTime}>{formatTime(tx.decided_at)}</Text>
+                      <Text style={styles.activityTime}>{formatTime(item.created_at)}</Text>
+                    </View>
+                    <View style={styles.boughtBadge}>
+                      <Text style={styles.boughtBadgeText}>Bought</Text>
                     </View>
                   </View>
                 );
@@ -180,57 +146,63 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   activityList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   activityRow: {
     flexDirection: 'row',
-    gap: spacing.md,
-  },
-  dotWrapper: {
-    paddingTop: 6,
-    flexShrink: 0,
-    width: 10,
     alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: spacing.md,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  thumbSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.thumb,
+    backgroundColor: colors.muted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  thumbText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    color: colors.mutedForeground,
   },
   activityContent: {
     flex: 1,
     minWidth: 0,
   },
-  activityText: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 14,
-    color: colors.foreground,
-    lineHeight: 20,
-  },
   activityTitle: {
     fontFamily: fonts.sansSemiBold,
+    fontSize: 14,
+    color: colors.foreground,
   },
   activityDesc: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
     color: colors.mutedForeground,
-  },
-  reasoningCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    padding: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  reasoningText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.mutedForeground,
-    lineHeight: 16,
+    marginTop: 2,
   },
   activityTime: {
     fontFamily: fonts.sansRegular,
     fontSize: 11,
     color: colors.mutedForeground,
-    marginTop: 4,
+    marginTop: 2,
+  },
+  boughtBadge: {
+    backgroundColor: colors.dealGreen + '22',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    flexShrink: 0,
+  },
+  boughtBadgeText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    color: colors.dealGreen,
   },
 });

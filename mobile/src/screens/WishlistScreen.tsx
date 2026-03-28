@@ -32,6 +32,7 @@ export const WishlistScreen = () => {
   const [addingItem, setAddingItem] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [buyingId, setBuyingId] = useState<string | null>(null);
   const navigation = useNavigation<NavProp>();
   const { user } = useAuth();
 
@@ -137,8 +138,19 @@ export const WishlistScreen = () => {
     }
   };
 
+  const handleBuy = async (item: WishlistItem) => {
+    setBuyingId(item.id);
+    try {
+      await api.wishlist.updateStatus(item.id, 'bought');
+      await loadItems();
+    } catch (e) {
+      console.error('[Wishlist] buy failed:', e);
+    } finally {
+      setBuyingId(null);
+    }
+  };
+
   const watching = items.filter((i) => i.status === 'watching');
-  const bought = items.filter((i) => i.status === 'bought');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -233,23 +245,15 @@ export const WishlistScreen = () => {
               )}
             </>
           }
-          ListFooterComponent={
-            bought.length > 0 ? (
-              <View style={{ marginTop: spacing.xl }}>
-                <Text style={[styles.sectionLabel, { marginBottom: spacing.md }]}>
-                  Bought ({bought.length})
-                </Text>
-                {bought.map((item) => (
-                  <View key={item.id} style={{ marginBottom: spacing.md }}>
-                    <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
-                  </View>
-                ))}
-              </View>
-            ) : null
-          }
+          ListFooterComponent={null}
           renderItem={({ item }) =>
             item.status === 'watching' ? (
-              <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
+              <ItemCard
+                item={item}
+                onPress={(i) => navigation.navigate('ItemDetail', { item: i })}
+                onBuy={() => handleBuy(item)}
+                isBuying={buyingId === item.id}
+              />
             ) : null
           }
           ListEmptyComponent={
