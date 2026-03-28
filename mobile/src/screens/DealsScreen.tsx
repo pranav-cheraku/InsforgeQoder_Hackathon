@@ -4,7 +4,7 @@ import {
   Animated, TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { TrendingDown, X, ShoppingCart, Check } from 'lucide-react-native';
+import { TrendingDown, X, ShoppingBag } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { colors, fonts, radius, spacing } from '../theme/colors';
@@ -41,7 +41,6 @@ export const DealsScreen = () => {
   const [items, setItems] = useState<WishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ name: string; price: number } | null>(null);
   const { user } = useAuth();
   const navigation = useNavigation();
@@ -52,9 +51,9 @@ export const DealsScreen = () => {
       .from('wishlist_items')
       .select('*')
       .eq('user_id', user.id)
-      .neq('status', 'bought')
+      .eq('status', 'watching')
       .order('created_at', { ascending: false })
-      .then(({ data }) => setItems((data ?? []).filter((i) => i.status !== 'paused')))
+      .then(({ data }) => setItems(data ?? []))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [user]);
@@ -73,17 +72,15 @@ export const DealsScreen = () => {
     insforge.realtime.connect().then(() => {
       insforge.realtime.subscribe(channel);
       insforge.realtime.on('price_update', loadItems);
-      insforge.realtime.on('buy_executed', loadItems);
-      insforge.realtime.on('buy_ready', (payload: any) => {
+      insforge.realtime.on('buy_executed', (payload: any) => {
         loadItems();
         setBanner({ name: payload.product_name, price: payload.buy_price });
-        setTimeout(() => setBanner(null), 8000);
+        setTimeout(() => setBanner(null), 6000);
       });
     }).catch(console.error);
     return () => {
       insforge.realtime.off('price_update', loadItems);
       insforge.realtime.off('buy_executed', loadItems);
-      insforge.realtime.off('buy_ready', loadItems);
       insforge.realtime.unsubscribe(channel);
     };
   }, [user, loadItems]);
@@ -101,34 +98,18 @@ export const DealsScreen = () => {
     }
   };
 
-  const handleConfirmBuy = async (item: WishlistItem) => {
-    setConfirming(item.id);
-    try {
-      await api.buy.confirm(item.id);
-      // Item will move to bought — remove from this list
-      setItems((prev) => prev.filter((i) => i.id !== item.id));
-    } catch (e: any) {
-      console.error('[Deals] confirm buy failed:', e);
-    } finally {
-      setConfirming(null);
-    }
-  };
-
-  const pending = items.filter((i) => i.status === 'pending_buy');
-  const watching = items.filter((i) => i.status === 'watching');
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.brand}>drip.</Text>
       </View>
 
-      {/* Buy-ready notification banner */}
+      {/* Bought notification banner */}
       {banner && (
         <View style={styles.banner}>
-          <ShoppingCart size={14} color={colors.dealGreen} />
+          <ShoppingBag size={14} color={colors.dealGreen} />
           <Text style={styles.bannerText} numberOfLines={1}>
-            Agent wants to buy <Text style={{ fontFamily: fonts.sansBold }}>{banner.name}</Text> for ${banner.price?.toFixed(2)}
+            Bought <Text style={{ fontFamily: fonts.sansBold }}>{banner.name}</Text> for ${banner.price?.toFixed(2)}
           </Text>
           <TouchableOpacity onPress={() => setBanner(null)}>
             <X size={14} color={colors.dealGreen} />
@@ -137,115 +118,74 @@ export const DealsScreen = () => {
       )}
 
       <FlatList
-        data={[...pending, ...watching]}
+        data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
         ListHeaderComponent={
-          <>
-            {pending.length > 0 && (
-              <Text style={styles.sectionLabel}>Ready to Buy ({pending.length})</Text>
-            )}
-          </>
+          items.length > 0 ? (
+            <Text style={styles.sectionLabel}>Tracking ({items.length})</Text>
+          ) : null
         }
-        renderItem={({ item, index }) => {
-          const isPending = item.status === 'pending_buy';
-          // Insert "Tracking" section label before first watching item
-          const firstWatchingIndex = pending.length;
-          const showWatchingLabel = !isPending && index === firstWatchingIndex;
-
+        renderItem={({ item }) => {
           const hasPrice = item.current_price > 0 && item.target_price > 0;
           const score = hasPrice ? Math.min(1, item.target_price / item.current_price) : 0;
           const pct = Math.round(score * 100);
           const atTarget = item.current_price > 0 && item.current_price <= item.target_price;
-          const dotColor = isPending ? colors.dealGreen : atTarget ? colors.dealGreen : colors.primary;
+          const dotColor = atTarget ? colors.dealGreen : colors.primary;
           const name = item.product_name ?? item.product_url;
 
           return (
-            <>
-              {showWatchingLabel && (
-                <Text style={[styles.sectionLabel, { marginTop: pending.length > 0 ? spacing.xl : 0 }]}>
-                  Tracking ({watching.length})
-                </Text>
-              )}
-              <View style={[styles.card, isPending && styles.cardPending]}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.dotWrapper}>
-                    <PulseDot color={dotColor} />
-                  </View>
-                  <Text style={styles.itemName} numberOfLines={2}>{name}</Text>
-                  {item.retailer ? (
-                    <View style={styles.retailerBadge}>
-                      <Text style={styles.retailerText}>{item.retailer}</Text>
-                    </View>
-                  ) : null}
-                  {!isPending && (
-                    <TouchableOpacity
-                      onPress={() => handleRemove(item.id)}
-                      style={styles.removeBtn}
-                      disabled={removing === item.id}
-                    >
-                      <X size={14} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-                  )}
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.dotWrapper}>
+                  <PulseDot color={dotColor} />
                 </View>
-
-                <View style={styles.priceRow}>
-                  <View>
-                    <Text style={styles.priceLabel}>Current</Text>
-                    <Text style={[styles.priceValue, atTarget && { color: colors.dealGreen }]}>
-                      {item.current_price > 0 ? `$${item.current_price.toFixed(2)}` : '—'}
-                    </Text>
+                <Text style={styles.itemName} numberOfLines={2}>{name}</Text>
+                {item.retailer ? (
+                  <View style={styles.retailerBadge}>
+                    <Text style={styles.retailerText}>{item.retailer}</Text>
                   </View>
-                  <TrendingDown size={16} color={colors.mutedForeground} />
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={styles.priceLabel}>Target</Text>
-                    <Text style={styles.priceValue}>
-                      {item.target_price > 0 ? `$${item.target_price.toFixed(2)}` : '—'}
-                    </Text>
-                  </View>
-                </View>
-
-                {hasPrice && !isPending && (
-                  <>
-                    <View style={styles.barTrack}>
-                      <View style={[styles.barFill, {
-                        width: `${pct}%` as any,
-                        backgroundColor: atTarget ? colors.dealGreen : colors.primary,
-                      }]} />
-                    </View>
-                    <Text style={styles.barLabel}>{pct}% to target</Text>
-                  </>
-                )}
-
-                {isPending && item.pending_reasoning && (
-                  <View style={styles.reasoningCard}>
-                    <Text style={styles.reasoningText} numberOfLines={4}>
-                      {item.pending_reasoning}
-                    </Text>
-                  </View>
-                )}
-
-                {isPending ? (
-                  <TouchableOpacity
-                    style={[styles.approveBtn, confirming === item.id && styles.approveBtnDisabled]}
-                    onPress={() => handleConfirmBuy(item)}
-                    disabled={confirming === item.id}
-                  >
-                    {confirming === item.id ? (
-                      <ActivityIndicator size="small" color="#000" />
-                    ) : (
-                      <>
-                        <Check size={14} color="#000" />
-                        <Text style={styles.approveBtnText}>Approve Purchase</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
-                  <Text style={styles.timeLabel}>watching since {formatTime(item.created_at)}</Text>
-                )}
+                ) : null}
+                <TouchableOpacity
+                  onPress={() => handleRemove(item.id)}
+                  style={styles.removeBtn}
+                  disabled={removing === item.id}
+                >
+                  <X size={14} color={colors.mutedForeground} />
+                </TouchableOpacity>
               </View>
-            </>
+
+              <View style={styles.priceRow}>
+                <View>
+                  <Text style={styles.priceLabel}>Current</Text>
+                  <Text style={[styles.priceValue, atTarget && { color: colors.dealGreen }]}>
+                    {item.current_price > 0 ? `$${item.current_price.toFixed(2)}` : '—'}
+                  </Text>
+                </View>
+                <TrendingDown size={16} color={colors.mutedForeground} />
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.priceLabel}>Target</Text>
+                  <Text style={styles.priceValue}>
+                    {item.target_price > 0 ? `$${item.target_price.toFixed(2)}` : '—'}
+                  </Text>
+                </View>
+              </View>
+
+              {hasPrice && (
+                <>
+                  <View style={styles.barTrack}>
+                    <View style={[styles.barFill, {
+                      width: `${pct}%` as any,
+                      backgroundColor: atTarget ? colors.dealGreen : colors.primary,
+                    }]} />
+                  </View>
+                  <Text style={styles.barLabel}>{pct}% to target</Text>
+                </>
+              )}
+
+              <Text style={styles.timeLabel}>watching since {formatTime(item.created_at)}</Text>
+            </View>
           );
         }}
         ListEmptyComponent={
@@ -336,10 +276,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginHorizontal: spacing.lg,
   },
-  cardPending: {
-    borderColor: colors.dealGreen,
-    borderWidth: 1.5,
-  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -401,32 +337,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     fontSize: 11,
     color: colors.mutedForeground,
-  },
-  reasoningCard: {
-    backgroundColor: '#0d2e1a',
-    borderRadius: radius.card,
-    padding: spacing.sm,
-  },
-  reasoningText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.dealGreen,
-    lineHeight: 16,
-  },
-  approveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.dealGreen,
-    borderRadius: radius.card,
-    paddingVertical: 10,
-  },
-  approveBtnDisabled: { opacity: 0.6 },
-  approveBtnText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: '#000',
   },
   timeLabel: {
     fontFamily: fonts.sansRegular,

@@ -71,17 +71,52 @@ class _IdentifyQuery(_BaseModel):
 @app.post("/identify")
 async def identify_product(body: _IdentifyQuery):
     """Return the single best product match for a natural language query."""
-    from fastapi import HTTPException
+    import os, json, re
+    from anthropic import AsyncAnthropic
+
+    # Try search_products first (web search + knowledge fallback)
     results = await _search_products(body.query)
-    if not results:
-        raise HTTPException(status_code=404, detail="No products found for that query")
-    best = results[0]
-    return {
-        "product_name": best.get("name", body.query),
-        "product_url": best.get("source_url", ""),
-        "retailer": best.get("source_name", "other"),
-        "price_estimate": best.get("price"),
-    }
+    if results:
+        best = results[0]
+        return {
+            "product_name": best.get("name", body.query),
+            "product_url": best.get("source_url", ""),
+            "retailer": best.get("source_name", "other"),
+            "price_estimate": best.get("price"),
+        }
+
+    # Final fallback: ask Claude to pick the single best product URL directly
+    try:
+        client_ai = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        message = await client_ai.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Given this shopping query, return the single best product to monitor.\n"
+                    f"Pick from major retailers: amazon.com, walmart.com, target.com, bestbuy.com.\n\n"
+                    f"Query: {body.query}\n\n"
+                    f"Return ONLY valid JSON:\n"
+                    f'{{"product_name":"exact product name","product_url":"https://full-url","retailer":"amazon|walmart|target|bestbuy|other","price_estimate":number or null}}'
+                ),
+            }],
+        )
+        raw = message.content[0].text.strip()
+        raw = re.sub(r"^```(?:json)?\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw).strip()
+        parsed = json.loads(raw)
+        return {
+            "product_name": parsed.get("product_name", body.query),
+            "product_url": parsed.get("product_url", ""),
+            "retailer": parsed.get("retailer", "other"),
+            "price_estimate": parsed.get("price_estimate"),
+        }
+    except Exception as e:
+        print(f"[identify] Claude fallback failed: {e}")
+
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail="Could not find a product for that query. Try being more specific.")
 
 
 @app.get("/health")

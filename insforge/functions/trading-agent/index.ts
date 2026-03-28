@@ -186,27 +186,70 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  // On BUY — set status to pending_buy, store reasoning, notify user for confirmation
+  // On BUY — execute purchase inline (inter-function calls cause LOOP_DETECTED)
   if (decision === 'BUY') {
+    const buyPrice    = currentPrice
+    const marketPrice = item.highest_price ? parseFloat(item.highest_price as string) : buyPrice
+    const user_id     = item.user_id as string
+
+    // 1. Insert transaction record
+    let transaction: Record<string, unknown> = {}
+    try {
+      const txRes = await fetch(`${BASE_URL()}/api/database/records/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Prefer': 'return=representation' },
+        body: JSON.stringify([{ item_id, user_id, buy_price: buyPrice, market_price: marketPrice, reasoning }]),
+      })
+      if (txRes.ok) {
+        const rows = await txRes.json()
+        transaction = Array.isArray(rows) ? rows[0] : rows
+      } else {
+        console.error('[trading-agent] insert transaction failed:', await txRes.text())
+      }
+    } catch (e: unknown) {
+      console.error('[trading-agent] insert transaction error:', (e as Error).message)
+    }
+
+    // 2. Update wishlist item status to bought
     try {
       await fetch(`${BASE_URL()}/api/database/records/wishlist_items?id=eq.${item_id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Prefer': 'return=representation' },
-        body: JSON.stringify({ status: 'pending_buy', pending_reasoning: reasoning }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: 'bought' }),
       })
     } catch (_) {}
 
+    // 3. Deduct buy_price from user budget
+    try {
+      const userRes = await fetch(`${BASE_URL()}/api/database/records/users?id=eq.${user_id}&select=budget&limit=1`, {
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      })
+      if (userRes.ok) {
+        const users = await userRes.json()
+        if (Array.isArray(users) && users[0]) {
+          const newBudget = parseFloat(users[0].budget as string) - buyPrice
+          await fetch(`${BASE_URL()}/api/database/records/users?id=eq.${user_id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ budget: newBudget }),
+          })
+        }
+      }
+    } catch (_) {}
+
+    // 4. Notify buy_executed — fire and forget
     fetch(`${BASE_URL()}/functions/notification-dispatcher`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
-        user_id: item.user_id,
+        user_id,
         item_id,
-        event_type: 'buy_ready',
+        event_type: 'buy_executed',
         payload: {
-          product_name: item.product_name,
-          buy_price: currentPrice,
-          market_price: item.highest_price ?? currentPrice,
+          product_name:  item.product_name,
+          buy_price:     transaction.buy_price ?? buyPrice,
+          market_price:  transaction.market_price ?? marketPrice,
+          saved_amount:  transaction.saved_amount ?? 0,
           composite_score: signals.composite,
           reasoning,
         },
