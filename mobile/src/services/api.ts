@@ -37,6 +37,14 @@ export const api = {
         .eq('id', id);
       if (error) throw error;
     },
+
+    async remove(id: string) {
+      const { error } = await insforge.database
+        .from('wishlist_items')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
   },
 
   priceHistory: {

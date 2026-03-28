@@ -143,6 +143,63 @@ async def handle_scrape(job: ScrapeJob):
     )
 
 
+class IdentifyRequest(BaseModel):
+    query: str
+
+
+class IdentifyResult(BaseModel):
+    product_name: str
+    product_url: str
+    retailer: str
+    price_estimate: float | None = None
+
+
+@app.post("/identify", response_model=IdentifyResult)
+async def identify_product(req: IdentifyRequest):
+    """
+    Given a natural-language query (e.g. "Nike Air Max size 10"),
+    return the single best product URL and metadata to monitor.
+    Uses Claude Haiku to pick the most likely retailer listing.
+    """
+    import anthropic
+    import re
+    import json as _json
+
+    client_ai = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    message = client_ai.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=512,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Given this shopping query, return the single best product to monitor for price drops.\n"
+                "Pick from major retailers: amazon.com, walmart.com, target.com, bestbuy.com.\n\n"
+                f"Query: {req.query}\n\n"
+                "Return ONLY this JSON object (no markdown fences, no extra text):\n"
+                '{"product_name":"<name>","product_url":"<url>","retailer":"<retailer>","price_estimate":<number or null>}'
+            ),
+        }],
+    )
+
+    raw = message.content[0].text.strip()
+    # Strip any accidental markdown fences
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw).strip()
+
+    try:
+        parsed = _json.loads(raw)
+    except _json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Claude returned invalid JSON: {e} — raw: {raw[:200]}")
+
+    # Only pass known fields to avoid Pydantic validation errors on extra keys
+    return IdentifyResult(
+        product_name=parsed.get("product_name", req.query),
+        product_url=parsed.get("product_url", ""),
+        retailer=parsed.get("retailer", "other"),
+        price_estimate=parsed.get("price_estimate"),
+    )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}

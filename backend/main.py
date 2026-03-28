@@ -11,6 +11,8 @@ from routes import items as items_router
 from routes import alerts as alerts_router
 from routes import prices as prices_router
 from routes import search as search_router
+from pydantic import BaseModel as _BaseModel
+from services.search import search_products as _search_products
 
 app = FastAPI(title="drip. backend")
 
@@ -60,6 +62,26 @@ async def startup():
             )
             db.add(alert)
             await db.commit()
+
+
+class _IdentifyQuery(_BaseModel):
+    query: str
+
+
+@app.post("/identify")
+async def identify_product(body: _IdentifyQuery):
+    """Return the single best product match for a natural language query."""
+    from fastapi import HTTPException
+    results = await _search_products(body.query)
+    if not results:
+        raise HTTPException(status_code=404, detail="No products found for that query")
+    best = results[0]
+    return {
+        "product_name": best.get("name", body.query),
+        "product_url": best.get("source_url", ""),
+        "retailer": best.get("source_name", "other"),
+        "price_estimate": best.get("price"),
+    }
 
 
 @app.get("/health")
