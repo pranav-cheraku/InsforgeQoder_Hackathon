@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bell, Plus } from 'lucide-react-native';
+import { Bell, Search, ArrowRight } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -79,6 +79,7 @@ export const WishlistScreen = () => {
           product_name: null,
           retailer: null,
           image_url: null,
+          current_price: 0,
           target_price: price,
           status: 'watching',
         });
@@ -118,7 +119,8 @@ export const WishlistScreen = () => {
         product_name: identified.product_name,
         retailer: identified.retailer,
         image_url: null,
-        target_price: identified.price_estimate ?? 0,
+        current_price: identified.price_estimate ?? 0,
+        target_price: (targetPrice && parseFloat(targetPrice) > 0) ? parseFloat(targetPrice) : (identified.price_estimate ?? 0),
         status: 'watching',
       });
       api.agent.triggerScrape(newItem.id).catch(() => {});
@@ -155,36 +157,55 @@ export const WishlistScreen = () => {
         </View>
       </View>
 
-      {/* Add item input */}
-      <View style={styles.inputWrapper}>
-        <TextInput
-          placeholder="What are you looking for?"
-          placeholderTextColor="rgba(255,255,255,0.5)"
-          style={[styles.input, styles.inputUrl]}
-          value={url}
-          onChangeText={setUrl}
-          onSubmitEditing={handleAddItem}
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <TextInput
-          placeholder="Target $"
-          placeholderTextColor="rgba(255,255,255,0.5)"
-          style={[styles.input, styles.inputPrice]}
-          value={targetPrice}
-          onChangeText={setTargetPrice}
-          keyboardType="decimal-pad"
-        />
+      {/* Add item card */}
+      <View style={styles.inputCard}>
+        {/* Search row */}
+        <View style={styles.inputRow}>
+          <Search size={16} color={colors.mutedForeground} style={{ flexShrink: 0 }} />
+          <TextInput
+            placeholder="What are you looking for?"
+            placeholderTextColor={colors.mutedForeground}
+            style={styles.inputField}
+            value={url}
+            onChangeText={setUrl}
+            onSubmitEditing={handleAddItem}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        <View style={styles.inputDivider} />
+
+        {/* Price row */}
+        <View style={styles.inputRow}>
+          <Text style={styles.currencyPrefix}>$</Text>
+          <TextInput
+            placeholder="Max budget (optional)"
+            placeholderTextColor={colors.mutedForeground}
+            style={styles.inputField}
+            value={targetPrice}
+            onChangeText={setTargetPrice}
+            keyboardType="decimal-pad"
+            returnKeyType="done"
+            onSubmitEditing={handleAddItem}
+          />
+        </View>
+
+        {/* CTA */}
         <TouchableOpacity
-          style={[styles.addBtn, (!url.trim() || addingItem) && styles.addBtnDisabled]}
+          style={[styles.trackBtn, (!url.trim() || addingItem) && styles.trackBtnDisabled]}
           onPress={handleAddItem}
           disabled={!url.trim() || addingItem}
+          activeOpacity={0.85}
         >
           {addingItem ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Plus size={18} color="#fff" />
+            <>
+              <Text style={styles.trackBtnText}>Track Item</Text>
+              <ArrowRight size={16} color="#fff" />
+            </>
           )}
         </TouchableOpacity>
       </View>
@@ -286,39 +307,62 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: colors.primaryForeground,
   },
-  inputWrapper: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
+  inputCard: {
+    marginHorizontal: spacing.lg,
     marginTop: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
-  },
-  input: {
-    backgroundColor: colors.foreground,
-    color: colors.primaryForeground,
-    borderRadius: 999,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    fontFamily: fonts.sansRegular,
-    fontSize: 14,
+    paddingVertical: 14,
   },
-  inputUrl: {
+  inputDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.lg,
+  },
+  currencyPrefix: {
+    fontFamily: fonts.mono,
+    fontSize: 16,
+    color: colors.mutedForeground,
+    flexShrink: 0,
+  },
+  inputField: {
     flex: 1,
+    fontFamily: fonts.sansRegular,
+    fontSize: 15,
+    color: colors.foreground,
+    paddingVertical: 0,
   },
-  inputPrice: {
-    width: 80,
-    textAlign: 'center',
-  },
-  addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
+  trackBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
+    gap: spacing.sm,
+    margin: spacing.md,
+    paddingVertical: 13,
+    backgroundColor: colors.primary,
+    borderRadius: 14,
   },
-  addBtnDisabled: {
+  trackBtnDisabled: {
     opacity: 0.4,
+  },
+  trackBtnText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 15,
+    color: '#fff',
   },
   addError: {
     fontFamily: fonts.sansRegular,

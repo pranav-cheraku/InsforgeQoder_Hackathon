@@ -114,24 +114,55 @@ async def handle_scrape(job: ScrapeJob):
 
     reasoning = None
 
-    # 5. Execute buy if signal is strong enough
+    # 5. On BUY signal: set pending_buy status and notify user for approval
     if decision.action == Action.BUY:
         reasoning = explainer.explain(decision, product.product_name, len(history))
 
+        # Fetch user_id for the notification
         async with httpx.AsyncClient() as client:
-            await client.post(
-                settings.buy_executor_url,
+            item_res = await client.get(
+                f"{settings.insforge_url}/rest/v1/wishlist_items?id=eq.{job.item_id}&select=user_id",
+                headers={"apikey": settings.service_key, "Authorization": f"Bearer {settings.service_key}"},
+            )
+        item_meta = item_res.json()
+        user_id = item_meta[0]["user_id"] if item_meta else None
+
+        # Mark item as pending_buy and store AI reasoning
+        async with httpx.AsyncClient() as client:
+            await client.patch(
+                f"{settings.insforge_url}/rest/v1/wishlist_items?id=eq.{job.item_id}",
                 headers={
+                    "apikey": settings.service_key,
                     "Authorization": f"Bearer {settings.service_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "item_id": job.item_id,
-                    "buy_price": product.current_price,
-                    "market_price": product.original_price or product.current_price,
-                    "reasoning": reasoning,
-                },
+                json={"status": "pending_buy", "pending_reasoning": reasoning},
             )
+
+        # Dispatch buy_ready notification so mobile can show approval prompt
+        if user_id:
+            notification_url = settings.buy_executor_url.replace("/buy-executor", "/notification-dispatcher")
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        notification_url,
+                        headers={
+                            "Authorization": f"Bearer {settings.service_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "user_id": user_id,
+                            "item_id": job.item_id,
+                            "event_type": "buy_ready",
+                            "payload": {
+                                "product_name": product.product_name,
+                                "buy_price": product.current_price,
+                                "reasoning": reasoning,
+                            },
+                        },
+                    )
+            except Exception:
+                pass  # non-fatal
 
     return ScrapeResult(
         item_id=job.item_id,

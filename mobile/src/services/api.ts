@@ -13,10 +13,10 @@ export const api = {
       return data ?? [];
     },
 
-    async add(item: Omit<WishlistItem, 'id' | 'created_at' | 'current_price' | 'highest_price'>): Promise<WishlistItem> {
+    async add(item: Omit<WishlistItem, 'id' | 'created_at' | 'highest_price' | 'pending_reasoning'>): Promise<WishlistItem> {
       const { data, error } = await insforge.database
         .from('wishlist_items')
-        .insert([{ ...item, current_price: 0, highest_price: 0 }])
+        .insert([{ ...item, current_price: item.current_price ?? 0, highest_price: 0 }])
         .select();
       if (error) throw error;
       return data![0];
@@ -44,6 +44,16 @@ export const api = {
         .delete()
         .eq('id', id);
       if (error) throw error;
+    },
+  },
+
+  buy: {
+    async confirm(itemId: string) {
+      const { data, error } = await insforge.functions.invoke('confirm-buy', {
+        body: { item_id: itemId },
+      });
+      if (error) throw error;
+      return data;
     },
   },
 

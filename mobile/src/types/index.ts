@@ -8,7 +8,8 @@ export interface WishlistItem {
   target_price: number;
   current_price: number;
   highest_price: number;
-  status: 'watching' | 'bought' | 'paused';
+  status: 'watching' | 'pending_buy' | 'bought' | 'paused';
+  pending_reasoning: string | null;
   created_at: string;
 }
 

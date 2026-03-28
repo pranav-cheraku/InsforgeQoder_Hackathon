@@ -6,9 +6,10 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, ExternalLink } from 'lucide-react-native';
 import { BarChart } from 'react-native-gifted-charts';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
@@ -132,11 +133,24 @@ export const ItemDetailScreen = () => {
               { label: '30-day avg', value: prices.length > 0 ? `$${avgPrice}` : '—' },
               { label: 'Status', value: item.status },
             ].map((row, i, arr) => (
-              <View key={row.label} style={[styles.infoRow, i < arr.length - 1 && styles.infoRowBorder]}>
+              <View key={row.label} style={[styles.infoRow, styles.infoRowBorder]}>
                 <Text style={styles.infoLabel}>{row.label}</Text>
                 <Text style={styles.infoValue}>{row.value}</Text>
               </View>
             ))}
+            <TouchableOpacity
+              style={styles.infoRow}
+              onPress={() => Linking.openURL(item.product_url)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.infoLabel}>Product link</Text>
+              <View style={styles.linkRow}>
+                <Text style={styles.linkText} numberOfLines={1}>
+                  {item.product_url.replace(/^https?:\/\//, '').slice(0, 30)}…
+                </Text>
+                <ExternalLink size={13} color={colors.primary} />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -275,5 +289,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.mutedForeground,
     textTransform: 'capitalize',
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  linkText: {
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    color: colors.primary,
   },
 });
