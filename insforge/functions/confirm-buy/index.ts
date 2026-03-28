@@ -83,10 +83,11 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ error: `Item status is '${item.status}', expected 'pending_buy'` }, 409)
   }
 
-  const buyPrice   = parseFloat((item.current_price ?? item.target_price) as string)
+  const buyPrice    = parseFloat((item.current_price ?? item.target_price) as string)
   const marketPrice = item.highest_price ? parseFloat(item.highest_price as string) : buyPrice
-  const reasoning  = `Purchase confirmed by user at $${buyPrice}.`
-  const user_id    = item.user_id as string
+  const reasoning   = (item.pending_reasoning as string | null)
+    ?? `Purchase confirmed by user at $${buyPrice}.`
+  const user_id     = item.user_id as string
 
   // Insert transaction — saved_amount is GENERATED ALWAYS, never include it
   let transaction: Record<string, unknown>

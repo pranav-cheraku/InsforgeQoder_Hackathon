@@ -186,13 +186,13 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  // On BUY — set status to pending_buy and notify user for confirmation
+  // On BUY — set status to pending_buy, store reasoning, notify user for confirmation
   if (decision === 'BUY') {
     try {
       await fetch(`${BASE_URL()}/api/database/records/wishlist_items?id=eq.${item_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Prefer': 'return=representation' },
-        body: JSON.stringify({ status: 'pending_buy' }),
+        body: JSON.stringify({ status: 'pending_buy', pending_reasoning: reasoning }),
       })
     } catch (_) {}
 
@@ -202,9 +202,10 @@ export default async function handler(req: Request): Promise<Response> {
       body: JSON.stringify({
         user_id: item.user_id,
         item_id,
-        event_type: 'buy_pending',
+        event_type: 'buy_ready',
         payload: {
-          proposed_price: currentPrice,
+          product_name: item.product_name,
+          buy_price: currentPrice,
           market_price: item.highest_price ?? currentPrice,
           composite_score: signals.composite,
           reasoning,
