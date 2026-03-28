@@ -3,23 +3,17 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
-  SafeAreaView,
+  ActivityIndicator,
   Animated,
 } from 'react-native';
-import { MapPin, CheckCircle } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { MapPin, ShoppingBag } from 'lucide-react-native';
 
-import { activityItems } from '../data/mockData';
 import { colors, fonts, radius, spacing } from '../theme/colors';
-
-type AgentState = 'pending' | 'bought' | 'skipped';
-
-const DOT_COLORS: Record<string, string> = {
-  red: colors.primary,
-  green: colors.dealGreen,
-  gray: colors.dotGray,
-};
+import type { Transaction } from '../types';
+import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -36,17 +30,31 @@ function PulseDot({ color }: { color: string }) {
   }, [scale]);
 
   return (
-    <Animated.View
-      style={[
-        styles.dot,
-        { backgroundColor: color, transform: [{ scale }] },
-      ]}
-    />
+    <Animated.View style={[styles.dot, { backgroundColor: color, transform: [{ scale }] }]} />
   );
 }
 
+function formatTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export const ActivityScreen = () => {
-  const [agentState, setAgentState] = useState<AgentState>('pending');
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    api.transactions.getAll(user.id)
+      .then(setTransactions)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [user]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -57,64 +65,50 @@ export const ActivityScreen = () => {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Agent permission card */}
-        {agentState === 'pending' && (
-          <View style={styles.agentCard}>
-            <Text style={styles.agentTitle}>Agent wants to buy</Text>
-            <Text style={styles.agentBody}>
-              Sony WH-1000XM5 hit your target price of{' '}
-              <Text style={styles.agentBold}>$249</Text> on eBay (new, free shipping).{'\n'}
-              This is the lowest price in 90 days. Shall I complete the purchase?
-            </Text>
-            <Text style={styles.agentMeta}>$249 · eBay · Ships in 2 days</Text>
-            <View style={styles.agentActions}>
-              <TouchableOpacity
-                style={styles.skipBtn}
-                onPress={() => setAgentState('skipped')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.skipText}>Skip</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.buyBtn}
-                onPress={() => setAgentState('bought')}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.buyText}>Buy now</Text>
-              </TouchableOpacity>
-            </View>
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
           </View>
-        )}
-
-        {agentState === 'bought' && (
-          <View style={styles.successCard}>
-            <CheckCircle size={24} color={colors.dealGreen} />
-            <View style={styles.successText}>
-              <Text style={styles.successTitle}>Order placed</Text>
-              <Text style={styles.successMeta}>Confirmation sent.</Text>
-            </View>
+        ) : transactions.length === 0 ? (
+          <View style={styles.center}>
+            <ShoppingBag size={32} color={colors.mutedForeground} />
+            <Text style={styles.emptyText}>No purchases yet.{'\n'}The agent will act when prices hit your targets.</Text>
           </View>
-        )}
+        ) : (
+          <>
+            <Text style={styles.sectionLabel}>Purchases</Text>
+            <View style={styles.activityList}>
+              {transactions.map((tx) => {
+                const name = tx.wishlist_items?.product_name ?? 'Item';
+                const saved = tx.saved_amount > 0 ? ` · saved $${tx.saved_amount.toFixed(2)}` : '';
+                const dotColor = tx.saved_amount > 10 ? colors.dealGreen : colors.primary;
 
-        {/* Recent Activity */}
-        <Text style={styles.sectionLabel}>Recent Activity</Text>
-        <View style={styles.activityList}>
-          {activityItems.map((item) => (
-            <View key={item.id} style={styles.activityRow}>
-              <View style={styles.dotWrapper}>
-                <PulseDot color={DOT_COLORS[item.dot]} />
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityText}>
-                  <Text style={styles.activityTitle}>{item.title}</Text>
-                  {'  '}
-                  <Text style={styles.activityDesc}>{item.description}</Text>
-                </Text>
-                <Text style={styles.activityTime}>{item.time}</Text>
-              </View>
+                return (
+                  <View key={tx.id} style={styles.activityRow}>
+                    <View style={styles.dotWrapper}>
+                      <PulseDot color={dotColor} />
+                    </View>
+                    <View style={styles.activityContent}>
+                      <Text style={styles.activityText}>
+                        <Text style={styles.activityTitle}>{name}</Text>
+                        {'  '}
+                        <Text style={styles.activityDesc}>
+                          bought for ${tx.buy_price.toFixed(2)}{saved}
+                        </Text>
+                      </Text>
+                      {tx.reasoning && (
+                        <View style={styles.reasoningCard}>
+                          <Text style={styles.reasoningText} numberOfLines={3}>{tx.reasoning}</Text>
+                        </View>
+                      )}
+                      <Text style={styles.activityTime}>{formatTime(tx.decided_at)}</Text>
+                    </View>
+                  </View>
+                );
+              })}
             </View>
-          ))}
-        </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -143,94 +137,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
   },
-  agentCard: {
-    backgroundColor: colors.bgAlert,
-    borderWidth: 1,
-    borderColor: `${colors.primary}1A`,
-    borderRadius: radius.card,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  agentTitle: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: colors.primary,
-    marginBottom: spacing.sm,
-  },
-  agentBody: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 14,
-    color: colors.foreground,
-    lineHeight: 20,
-  },
-  agentBold: {
-    fontFamily: fonts.sansBold,
-  },
-  agentMeta: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 12,
-    color: colors.mutedForeground,
-    marginTop: spacing.sm,
-  },
-  agentActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  skipBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-  },
-  skipText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 14,
-    color: colors.foreground,
-  },
-  buyBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  buyText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 14,
-    color: colors.primaryForeground,
-  },
-  successCard: {
-    flexDirection: 'row',
+  center: {
+    paddingTop: 80,
     alignItems: 'center',
     gap: spacing.md,
-    backgroundColor: `${colors.dealGreen}1A`,
-    borderWidth: 1,
-    borderColor: `${colors.dealGreen}33`,
-    borderRadius: radius.card,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
   },
-  successText: {
-    flex: 1,
-  },
-  successTitle: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: colors.dealGreen,
-  },
-  successMeta: {
+  emptyText: {
     fontFamily: fonts.sansRegular,
-    fontSize: 12,
+    fontSize: 14,
     color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: spacing.md,
   },
   sectionLabel: {
     fontFamily: fonts.sansSemiBold,
@@ -274,10 +192,24 @@ const styles = StyleSheet.create({
   activityDesc: {
     color: colors.mutedForeground,
   },
+  reasoningCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  reasoningText: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: colors.mutedForeground,
+    lineHeight: 16,
+  },
   activityTime: {
     fontFamily: fonts.sansRegular,
     fontSize: 11,
     color: colors.mutedForeground,
-    marginTop: 2,
+    marginTop: 4,
   },
 });

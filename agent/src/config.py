@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     anthropic_api_key: str
     insforge_url: str
-    insforge_service_role_key: str
+    service_key: str           # InsForge SERVICE_KEY (set via: npx @insforge/cli secrets add SERVICE_KEY ...)
     buy_executor_url: str
     port: int = 8000
 

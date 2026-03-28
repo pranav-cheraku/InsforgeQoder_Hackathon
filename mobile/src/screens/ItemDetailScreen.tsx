@@ -1,18 +1,21 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
-import { ChevronLeft, Check } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChevronLeft } from 'lucide-react-native';
 import { BarChart } from 'react-native-gifted-charts';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
 import { colors, fonts, radius, spacing } from '../theme/colors';
 import type { WishlistStackParamList } from '../../App';
+import type { PricePoint } from '../types';
+import { api } from '../services/api';
 
 type RouteProps = RouteProp<WishlistStackParamList, 'ItemDetail'>;
 
@@ -21,22 +24,32 @@ export const ItemDetailScreen = () => {
   const route = useRoute<RouteProps>();
   const { item } = route.params;
 
-  const bestSource = item.sources.find((s) => s.best);
-  const savings = item.avgPrice - (bestSource?.price ?? item.price);
+  const [history, setHistory] = useState<PricePoint[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // Build bar chart data — last bar highlighted red, others light red
-  const barData = item.priceHistory.map((val, i) => ({
+  useEffect(() => {
+    api.priceHistory.getForItem(item.id)
+      .then(setHistory)
+      .catch(console.error)
+      .finally(() => setLoadingHistory(false));
+  }, [item.id]);
+
+  const prices = history.map((p) => p.price);
+  const allTimeLow = prices.length > 0 ? Math.min(...prices) : item.current_price;
+  const avgPrice = prices.length > 0
+    ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
+    : item.current_price;
+
+  // Use last 30 data points for chart
+  const chartPrices = prices.slice(-30);
+  const barData = chartPrices.map((val, i) => ({
     value: val,
-    frontColor: i === item.priceHistory.length - 1 ? colors.primary : '#F4A7B1',
-    topLabelComponent:
-      i === item.priceHistory.length - 1
-        ? () => null
-        : undefined,
+    frontColor: i === chartPrices.length - 1 ? colors.primary : '#F4A7B1',
   }));
 
-  // Normalize for chart height — find min/max
-  const minVal = Math.min(...item.priceHistory);
-  const chartMin = Math.floor(minVal * 0.95);
+  const savings = item.highest_price > 0
+    ? (item.highest_price - item.current_price).toFixed(2)
+    : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -46,8 +59,10 @@ export const ItemDetailScreen = () => {
           <ChevronLeft size={24} color={colors.foreground} />
         </TouchableOpacity>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.headerSub}>Updated 2m ago</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {item.product_name ?? 'Product'}
+          </Text>
+          <Text style={styles.headerSub}>{item.retailer ?? item.product_url}</Text>
         </View>
       </View>
 
@@ -55,9 +70,9 @@ export const ItemDetailScreen = () => {
         {/* Stat cards */}
         <View style={styles.statsRow}>
           {[
-            { label: 'Best now', value: `$${bestSource?.price ?? item.price}`, color: colors.primary },
-            { label: 'Avg price', value: `$${item.avgPrice}`, color: colors.foreground },
-            { label: 'All-time low', value: `$${item.allTimeLow}`, color: colors.dealGreen },
+            { label: 'Current', value: item.current_price > 0 ? `$${item.current_price.toFixed(0)}` : '—', color: colors.primary },
+            { label: 'Target', value: `$${item.target_price.toFixed(0)}`, color: colors.foreground },
+            { label: 'All-time low', value: allTimeLow > 0 ? `$${allTimeLow.toFixed(0)}` : '—', color: colors.dealGreen },
           ].map((stat) => (
             <View key={stat.label} style={styles.statCard}>
               <Text style={styles.statLabel}>{stat.label}</Text>
@@ -68,53 +83,58 @@ export const ItemDetailScreen = () => {
 
         {/* Price chart */}
         <View style={styles.chartSection}>
-          <Text style={styles.sectionLabel}>30-day price history</Text>
+          <Text style={styles.sectionLabel}>
+            Price history {chartPrices.length > 0 ? `(${chartPrices.length} snapshots)` : ''}
+          </Text>
           <View style={styles.chartCard}>
-            <BarChart
-              data={barData}
-              barWidth={7}
-              spacing={2}
-              roundedTop
-              hideRules
-              hideYAxisText
-              hideAxesAndRules
-              xAxisThickness={0}
-              yAxisThickness={0}
-              noOfSections={4}
-              height={100}
-              width={280}
-              barBorderRadius={2}
-              labelWidth={40}
-              xAxisLabelTexts={item.priceHistory.map((_, i) =>
-                i === 0 ? 'Mar 1' : i === 14 ? 'Mar 14' : i === 29 ? 'Today' : ''
-              )}
-              xAxisLabelTextStyle={{ color: colors.mutedForeground, fontSize: 9, fontFamily: fonts.sansRegular }}
-            />
+            {loadingHistory ? (
+              <View style={styles.chartPlaceholder}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : chartPrices.length === 0 ? (
+              <View style={styles.chartPlaceholder}>
+                <Text style={styles.noDataText}>No price history yet</Text>
+              </View>
+            ) : (
+              <BarChart
+                data={barData}
+                barWidth={7}
+                spacing={2}
+                roundedTop
+                hideRules
+                hideYAxisText
+                hideAxesAndRules
+                xAxisThickness={0}
+                yAxisThickness={0}
+                noOfSections={4}
+                height={100}
+                width={280}
+                barBorderRadius={2}
+              />
+            )}
           </View>
         </View>
 
-        {/* Sources */}
-        <View style={styles.sourcesSection}>
-          <Text style={styles.sectionLabel}>Prices across sources</Text>
-          {savings > 0 && (
+        {/* Price info section */}
+        <View style={styles.infoSection}>
+          <Text style={styles.sectionLabel}>Price info</Text>
+          {savings && Number(savings) > 0 && (
             <View style={styles.bestDealRow}>
-              <Text style={styles.bestDealText}>Best deal found</Text>
+              <Text style={styles.bestDealText}>Below peak</Text>
               <Text style={styles.bestDealText}>Save ${savings}</Text>
             </View>
           )}
-          <View style={styles.sourcesCard}>
-            {item.sources.map((source, i) => (
-              <View
-                key={source.name}
-                style={[
-                  styles.sourceRow,
-                  i < item.sources.length - 1 && styles.sourceRowBorder,
-                ]}
-              >
-                <View style={[styles.sourceDot, { backgroundColor: source.dot }]} />
-                <Text style={styles.sourceName}>{source.name}</Text>
-                <Text style={styles.sourcePrice}>${source.price}</Text>
-                {source.best && <Check size={16} color={colors.dealGreen} />}
+          <View style={styles.infoCard}>
+            {[
+              { label: 'Current price', value: item.current_price > 0 ? `$${item.current_price.toFixed(2)}` : 'Not scraped yet' },
+              { label: 'Target price', value: `$${item.target_price.toFixed(2)}` },
+              { label: 'Highest seen', value: item.highest_price > 0 ? `$${item.highest_price.toFixed(2)}` : '—' },
+              { label: '30-day avg', value: prices.length > 0 ? `$${avgPrice}` : '—' },
+              { label: 'Status', value: item.status },
+            ].map((row, i, arr) => (
+              <View key={row.label} style={[styles.infoRow, i < arr.length - 1 && styles.infoRowBorder]}>
+                <Text style={styles.infoLabel}>{row.label}</Text>
+                <Text style={styles.infoValue}>{row.value}</Text>
               </View>
             ))}
           </View>
@@ -205,7 +225,17 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     overflow: 'hidden',
   },
-  sourcesSection: {},
+  chartPlaceholder: {
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noDataText: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    color: colors.mutedForeground,
+  },
+  infoSection: {},
   bestDealRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -217,39 +247,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primary,
   },
-  sourcesCard: {
+  infoCard: {
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.card,
     overflow: 'hidden',
   },
-  sourceRow: {
+  infoRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
   },
-  sourceRowBorder: {
+  infoRowBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  sourceDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
-  sourceName: {
-    flex: 1,
+  infoLabel: {
     fontFamily: fonts.sansRegular,
     fontSize: 14,
     color: colors.foreground,
   },
-  sourcePrice: {
+  infoValue: {
     fontFamily: fonts.mono,
     fontSize: 14,
-    color: colors.foreground,
+    color: colors.mutedForeground,
+    textTransform: 'capitalize',
   },
 });

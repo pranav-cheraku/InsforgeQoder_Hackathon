@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, fonts, radius, spacing } from '../theme/colors';
-import type { WishlistItem } from '../data/mockData';
+import type { WishlistItem } from '../types';
 
 interface ItemCardProps {
   item: WishlistItem;
@@ -12,48 +12,64 @@ interface ItemCardProps {
   priceSub?: string;
 }
 
+function getTrend(item: WishlistItem): { trend: 'deal' | 'low' | 'avg'; label: string } {
+  const { current_price, target_price, highest_price } = item;
+  if (current_price > 0 && current_price <= target_price) {
+    return { trend: 'deal', label: 'Deal now' };
+  }
+  if (highest_price > 0 && current_price < highest_price * 0.9) {
+    return { trend: 'low', label: `Low $${current_price.toFixed(0)}` };
+  }
+  return { trend: 'avg', label: 'Avg' };
+}
+
 export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, priceSub }: ItemCardProps) => {
-  const price = priceLabel ?? `$${item.price}`;
+  const { trend, label } = getTrend(item);
+  const displayPrice = priceLabel ?? (item.current_price > 0 ? `$${item.current_price.toFixed(0)}` : '—');
+
   const trendColor =
-    item.trend === 'low' ? colors.dealGreen :
-    item.trend === 'deal' ? colors.primary :
+    trend === 'low' ? colors.dealGreen :
+    trend === 'deal' ? colors.primary :
     colors.mutedForeground;
 
   const trendPrefix =
-    item.trend === 'low' ? '↓ ' :
-    item.trend === 'deal' ? '↑ ' :
+    trend === 'low' ? '↓ ' :
+    trend === 'deal' ? '🔥 ' :
     '≈ ';
+
+  const initials = (item.product_name ?? item.retailer ?? '?')
+    .split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
 
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(item)} activeOpacity={0.7}>
       {/* Thumbnail */}
       <View style={styles.thumb}>
-        <Text style={styles.thumbEmoji}>{item.image}</Text>
+        <Text style={styles.thumbText}>{initials}</Text>
       </View>
 
       {/* Info */}
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.name} numberOfLines={1}>{item.product_name ?? 'Unknown'}</Text>
           {showBadge && badgeLabel && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{badgeLabel}</Text>
             </View>
           )}
         </View>
-        <Text style={styles.subtitle}>{item.subtitle}</Text>
+        <Text style={styles.subtitle}>{item.retailer ?? item.product_url}</Text>
       </View>
 
       {/* Price */}
       <View style={styles.priceCol}>
-        <Text style={[styles.price, priceLabel ? styles.priceGreen : item.trend === 'deal' ? styles.pricePrimary : styles.priceDefault]}>
-          {price}
+        <Text style={[styles.price, priceLabel ? styles.priceGreen : trend === 'deal' ? styles.pricePrimary : styles.priceDefault]}>
+          {displayPrice}
         </Text>
         {priceSub ? (
           <Text style={styles.priceSub}>{priceSub}</Text>
         ) : (
           <Text style={[styles.trendLabel, { color: trendColor }]}>
-            {trendPrefix}{item.trendLabel}
+            {trendPrefix}{label}
           </Text>
         )}
       </View>
@@ -86,8 +102,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
-  thumbEmoji: {
-    fontSize: 26,
+  thumbText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 16,
+    color: colors.mutedForeground,
   },
   info: {
     flex: 1,

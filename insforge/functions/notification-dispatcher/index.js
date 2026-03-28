@@ -1,15 +1,13 @@
 /**
  * notification-dispatcher — InsForge Edge Function
  *
- * Publishes realtime events to the dealflow:updates WebSocket channel.
- * Called by buy-executor and trading-agent after significant events.
+ * Publishes realtime events to WebSocket channels.
+ * Called by buy-executor after a purchase.
  *
- * Events:
- *   buy_executed   — agent completed a purchase
- *   price_alert    — price dropped below target
- *   agent_decision — any BUY / WATCH / HOLD decision
+ * Channels:
+ *   dealflow:updates        — global agent activity feed
+ *   dealflow:user:{user_id} — per-user private notifications
  *
- * See: agents/notification-dispatcher.md for full spec
  * Deploy: npx @insforge/cli functions deploy notification-dispatcher
  */
 
@@ -32,7 +30,6 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
-  // Uses anon key — no user auth required for publishing
   const client = createClient({
     baseUrl: Deno.env.get('INSFORGE_BASE_URL'),
     anonKey: Deno.env.get('ANON_KEY'),
@@ -43,10 +40,23 @@ export default async function handler(req) {
     return json({ error: 'user_id, item_id, and event_type are required' }, 400)
   }
 
-  // TODO: optionally fetch product_name from wishlist_items for richer payload
-  // TODO: publish event to 'dealflow:updates' channel
-  // TODO: publish to per-user 'dealflow:user:{user_id}' channel if it exists
-  // TODO: return { dispatched: true, event_type, channel }
+  const event = {
+    event_type,
+    item_id,
+    user_id,
+    timestamp: new Date().toISOString(),
+    ...(payload ?? {}),
+  }
 
-  return json({ message: 'not implemented' }, 501)
+  await client.realtime.connect()
+  await Promise.all([
+    client.realtime.publish('dealflow:updates', event_type, event),
+    client.realtime.publish(`dealflow:user:${user_id}`, event_type, event),
+  ])
+
+  return json({
+    dispatched: true,
+    event_type,
+    channels: ['dealflow:updates', `dealflow:user:${user_id}`],
+  })
 }

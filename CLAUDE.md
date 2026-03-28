@@ -51,7 +51,7 @@ agent/src/                            — Python distributed scraper worker
 
 agents/                               — Agent definition docs (specs + deploy instructions)
 docs/                                 — Architecture, API contracts, DB schema, algorithm spec
-backend/db/                           — schema.sql, seed.sql (30 days demo data)
+  docs/database-setup.sql            — Single source of truth for DB (run this in InsForge)
 ```
 
 ## Database Tables
@@ -74,7 +74,7 @@ backend/db/                           — schema.sql, seed.sql (30 days demo dat
 
 ## Quick Deploy Sequence
 ```bash
-# 1. Database
+# 1. Database (single source of truth — run once in InsForge)
 npx @insforge/cli db import docs/database-setup.sql
 
 # 2. Edge function secrets

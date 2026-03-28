@@ -53,8 +53,8 @@ async def handle_scrape(job: ScrapeJob):
 
     async with httpx.AsyncClient() as client:
         headers = {
-            "apikey": settings.insforge_service_role_key,
-            "Authorization": f"Bearer {settings.insforge_service_role_key}",
+            "apikey": settings.service_key,
+            "Authorization": f"Bearer {settings.service_key}",
             "Content-Type": "application/json",
         }
 
@@ -96,8 +96,8 @@ async def handle_scrape(job: ScrapeJob):
         item_res = await client.get(
             f"{settings.insforge_url}/rest/v1/wishlist_items?id=eq.{job.item_id}&select=target_price,status",
             headers={
-                "apikey": settings.insforge_service_role_key,
-                "Authorization": f"Bearer {settings.insforge_service_role_key}",
+                "apikey": settings.service_key,
+                "Authorization": f"Bearer {settings.service_key}",
             },
         )
     item_data = item_res.json()
@@ -122,7 +122,7 @@ async def handle_scrape(job: ScrapeJob):
             await client.post(
                 settings.buy_executor_url,
                 headers={
-                    "Authorization": f"Bearer {settings.insforge_service_role_key}",
+                    "Authorization": f"Bearer {settings.service_key}",
                     "Content-Type": "application/json",
                 },
                 json={

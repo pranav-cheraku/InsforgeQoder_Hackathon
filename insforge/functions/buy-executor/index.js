@@ -1,16 +1,13 @@
 /**
  * buy-executor — InsForge Edge Function
  *
- * Executes a confirmed buy decision:
- * 1. Inserts a transaction record
- * 2. Sets wishlist_items.status to 'bought'
- * 3. Deducts buy_price from users.budget
- * 4. Invokes notification-dispatcher
+ * Called by the Python agent worker on a BUY decision.
+ * 1. Guard: skip if already bought or budget insufficient
+ * 2. Insert transaction record
+ * 3. Update wishlist_items.status → 'bought'
+ * 4. Deduct buy_price from users.budget
+ * 5. Invoke notification-dispatcher
  *
- * Called automatically by trading-agent on a BUY decision.
- * Can also be invoked directly for demo/testing.
- *
- * See: agents/buy-executor.md for full spec
  * Deploy: npx @insforge/cli functions deploy buy-executor
  */
 
@@ -35,19 +32,66 @@ export default async function handler(req) {
 
   const client = createClient({
     baseUrl: Deno.env.get('INSFORGE_BASE_URL'),
-    edgeFunctionToken: req.headers.get('Authorization')?.replace('Bearer ', '') ?? null,
+    edgeFunctionToken: Deno.env.get('SERVICE_KEY'),
   })
 
-  const { item_id, user_id, buy_price, market_price, reasoning } = await req.json()
-  if (!item_id || !user_id || !buy_price || !reasoning) {
-    return json({ error: 'item_id, user_id, buy_price, and reasoning are required' }, 400)
+  const { item_id, buy_price, market_price, reasoning } = await req.json()
+  if (!item_id || buy_price == null || !reasoning) {
+    return json({ error: 'item_id, buy_price, and reasoning are required' }, 400)
   }
 
-  // TODO: insert row into transactions (item_id, user_id, buy_price, market_price, reasoning)
-  // TODO: update wishlist_items.status = 'bought' where id = item_id
-  // TODO: deduct buy_price from users.budget where id = user_id
-  // TODO: invoke 'notification-dispatcher' with event_type 'buy_executed'
-  // TODO: return { transaction_id, buy_price, saved_amount, reasoning }
+  // Load item + user
+  const { data: item, error: itemErr } = await client.database
+    .from('wishlist_items')
+    .select('id, status, user_id, product_name')
+    .eq('id', item_id)
+    .single()
+  if (itemErr || !item) return json({ error: 'Item not found' }, 404)
 
-  return json({ message: 'not implemented' }, 501)
+  if (item.status === 'bought') return json({ skipped: true, reason: 'already_bought' })
+
+  const { data: user, error: userErr } = await client.database
+    .from('users')
+    .select('id, budget')
+    .eq('id', item.user_id)
+    .single()
+  if (userErr || !user) return json({ error: 'User not found' }, 404)
+
+  if (user.budget < buy_price) return json({ skipped: true, reason: 'insufficient_budget' })
+
+  // Write transaction, update item status, deduct budget
+  const [txnResult, statusResult, budgetResult] = await Promise.all([
+    client.database.from('transactions').insert([{
+      item_id,
+      user_id: user.id,
+      buy_price,
+      market_price: market_price ?? buy_price,
+      reasoning,
+    }]),
+    client.database
+      .from('wishlist_items')
+      .update({ status: 'bought', current_price: buy_price })
+      .eq('id', item_id),
+    client.database
+      .from('users')
+      .update({ budget: user.budget - buy_price })
+      .eq('id', user.id),
+  ])
+
+  const writeError = [txnResult.error, statusResult.error, budgetResult.error].find(Boolean)
+  if (writeError) return json({ error: writeError.message }, 500)
+
+  const saved = (market_price ?? buy_price) - buy_price
+
+  // Notify frontend — non-fatal
+  await client.functions.invoke('notification-dispatcher', {
+    body: {
+      user_id: user.id,
+      item_id,
+      event_type: 'buy_executed',
+      payload: { product_name: item.product_name, buy_price, saved, reasoning },
+    },
+  }).catch(() => {})
+
+  return json({ success: true, saved })
 }

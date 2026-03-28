@@ -1,10 +1,12 @@
 /**
  * price-scraper — InsForge Edge Function
  *
- * Scrapes a product URL for the current price and writes it to price_history.
- * Also updates wishlist_items with the latest price, product name, and image.
+ * Entry point for the agentic loop. Called by the mobile app when a user
+ * adds a wishlist item, or by price-poller on a schedule.
  *
- * See: agents/price-scraper.md for full spec
+ * Fans out scrape jobs to the Python agent worker, which handles:
+ *   scrape → write price_history → evaluate signals → BUY/WATCH/HOLD → buy-executor
+ *
  * Deploy: npx @insforge/cli functions deploy price-scraper
  */
 
@@ -27,20 +29,53 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
+  // Service-role client — bypasses RLS to read all watching items
   const client = createClient({
     baseUrl: Deno.env.get('INSFORGE_BASE_URL'),
-    edgeFunctionToken: req.headers.get('Authorization')?.replace('Bearer ', '') ?? null,
+    edgeFunctionToken: Deno.env.get('SERVICE_KEY'),
   })
 
-  const { item_id, product_url } = await req.json()
-  if (!item_id || !product_url) {
-    return json({ error: 'item_id and product_url are required' }, 400)
+  const body = await req.json()
+  const { item_id } = body
+
+  let items = []
+
+  if (item_id) {
+    const { data, error } = await client.database
+      .from('wishlist_items')
+      .select('id, product_url')
+      .eq('id', item_id)
+      .single()
+    if (error || !data) return json({ error: 'Item not found' }, 404)
+    items = [data]
+  } else {
+    const { data, error } = await client.database
+      .from('wishlist_items')
+      .select('id, product_url')
+      .eq('status', 'watching')
+    if (error) return json({ error: error.message }, 500)
+    items = data ?? []
   }
 
-  // TODO: scrape product_url for price, product_name, image_url
-  // TODO: insert into price_history
-  // TODO: update wishlist_items (current_price, product_name, retailer, image_url)
-  // TODO: publish 'price_update' event to 'dealflow:updates' realtime channel
+  if (items.length === 0) return json({ dispatched: 0, results: [] })
 
-  return json({ message: 'not implemented' }, 501)
+  const agentUrl = Deno.env.get('AGENT_WORKER_URL')
+  const jobs = items.map(item =>
+    fetch(`${agentUrl}/scrape`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: item.id, url: item.product_url }),
+    })
+      .then(r => r.json())
+      .catch(e => ({ error: e.message, item_id: item.id }))
+  )
+
+  const results = await Promise.allSettled(jobs)
+  const summary = results.map((r, i) => ({
+    item_id: items[i].id,
+    status: r.status,
+    value: r.status === 'fulfilled' ? r.value : r.reason,
+  }))
+
+  return json({ dispatched: items.length, results: summary })
 }

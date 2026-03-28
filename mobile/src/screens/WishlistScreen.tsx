@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,28 +6,74 @@ import {
   TouchableOpacity,
   TextInput,
   FlatList,
-  SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
-import { Bell, Clock } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Bell, Plus } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { wishlistItems, type WishlistItem } from '../data/mockData';
 import { ItemCard } from '../components/ItemCard';
 import { colors, fonts, spacing } from '../theme/colors';
 import type { WishlistStackParamList } from '../../App';
-
-type SubTab = 'wishlist' | 'deals' | 'activity';
+import type { WishlistItem } from '../types';
+import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 type NavProp = NativeStackNavigationProp<WishlistStackParamList, 'WishlistMain'>;
 
 export const WishlistScreen = () => {
-  const [subTab, setSubTab] = useState<SubTab>('wishlist');
+  const [items, setItems] = useState<WishlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [url, setUrl] = useState('');
+  const [targetPrice, setTargetPrice] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
   const navigation = useNavigation<NavProp>();
+  const { user } = useAuth();
 
-  const handleSelectItem = (item: WishlistItem) => {
-    navigation.navigate('ItemDetail', { item });
+  const loadItems = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await api.wishlist.getAll(user.id);
+      setItems(data);
+    } catch (e) {
+      console.error('Failed to load wishlist:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadItems();
+  }, [loadItems]);
+
+  const handleAddItem = async () => {
+    if (!url.trim() || !user) return;
+    const price = parseFloat(targetPrice);
+    if (isNaN(price) || price <= 0) return;
+    setAddingItem(true);
+    try {
+      await api.wishlist.add({
+        user_id: user.id,
+        product_url: url.trim(),
+        product_name: null,
+        retailer: null,
+        image_url: null,
+        target_price: price,
+        status: 'watching',
+      });
+      setUrl('');
+      setTargetPrice('');
+      await loadItems();
+    } catch (e) {
+      console.error('Failed to add item:', e);
+    } finally {
+      setAddingItem(false);
+    }
   };
+
+  const watching = items.filter((i) => i.status === 'watching');
+  const bought = items.filter((i) => i.status === 'bought');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -37,52 +83,90 @@ export const WishlistScreen = () => {
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn}>
             <Bell size={20} color={colors.foreground} />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>3</Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Clock size={20} color={colors.foreground} />
+            {watching.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{watching.length}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Sub tabs */}
-      <View style={styles.subTabRow}>
-        {(['wishlist', 'deals', 'activity'] as SubTab[]).map((tab) => (
-          <TouchableOpacity key={tab} onPress={() => setSubTab(tab)} style={styles.subTabBtn}>
-            <Text style={[styles.subTabText, subTab === tab && styles.subTabTextActive]}>
-              {tab}
-            </Text>
-            {subTab === tab && <View style={styles.subTabUnderline} />}
-          </TouchableOpacity>
-        ))}
       </View>
 
       {/* Add item input */}
       <View style={styles.inputWrapper}>
         <TextInput
-          placeholder="Add item or paste URL..."
+          placeholder="Paste product URL..."
           placeholderTextColor="rgba(255,255,255,0.5)"
-          style={styles.input}
+          style={[styles.input, styles.inputUrl]}
+          value={url}
+          onChangeText={setUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
         />
+        <TextInput
+          placeholder="Target $"
+          placeholderTextColor="rgba(255,255,255,0.5)"
+          style={[styles.input, styles.inputPrice]}
+          value={targetPrice}
+          onChangeText={setTargetPrice}
+          keyboardType="decimal-pad"
+        />
+        <TouchableOpacity
+          style={[styles.addBtn, (!url.trim() || !targetPrice) && styles.addBtnDisabled]}
+          onPress={handleAddItem}
+          disabled={!url.trim() || !targetPrice || addingItem}
+        >
+          {addingItem ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Plus size={18} color="#fff" />
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Watching label */}
-      <View style={styles.watchingRow}>
-        <Text style={styles.watchingLabel}>Watching ({wishlistItems.length})</Text>
-      </View>
-
-      {/* Items list */}
-      <FlatList
-        data={wishlistItems}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
-        renderItem={({ item }) => (
-          <ItemCard item={item} onPress={handleSelectItem} />
-        )}
-      />
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+          ListHeaderComponent={
+            <>
+              {watching.length > 0 && (
+                <Text style={styles.sectionLabel}>Watching ({watching.length})</Text>
+              )}
+            </>
+          }
+          ListFooterComponent={
+            bought.length > 0 ? (
+              <View style={{ marginTop: spacing.xl }}>
+                <Text style={[styles.sectionLabel, { marginBottom: spacing.md }]}>
+                  Bought ({bought.length})
+                </Text>
+                {bought.map((item) => (
+                  <View key={item.id} style={{ marginBottom: spacing.md }}>
+                    <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
+                  </View>
+                ))}
+              </View>
+            ) : null
+          }
+          renderItem={({ item }) =>
+            item.status === 'watching' ? (
+              <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
+            ) : null
+          }
+          ListEmptyComponent={
+            <View style={styles.center}>
+              <Text style={styles.emptyText}>No items yet. Add a product URL above.</Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -131,39 +215,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: colors.primaryForeground,
   },
-  subTabRow: {
-    flexDirection: 'row',
-    gap: 24,
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  subTabBtn: {
-    paddingBottom: spacing.sm,
-    position: 'relative',
-  },
-  subTabText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 14,
-    color: colors.mutedForeground,
-    textTransform: 'capitalize',
-  },
-  subTabTextActive: {
-    color: colors.primary,
-  },
-  subTabUnderline: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: colors.primary,
-    borderRadius: 1,
-  },
   inputWrapper: {
+    flexDirection: 'row',
     paddingHorizontal: spacing.lg,
     marginTop: spacing.lg,
+    gap: spacing.sm,
   },
   input: {
     backgroundColor: colors.foreground,
@@ -174,20 +230,50 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     fontSize: 14,
   },
-  watchingRow: {
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.xl,
-    marginBottom: spacing.sm,
+  inputUrl: {
+    flex: 1,
   },
-  watchingLabel: {
+  inputPrice: {
+    width: 80,
+    textAlign: 'center',
+  },
+  addBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  addBtnDisabled: {
+    opacity: 0.4,
+  },
+  sectionLabel: {
     fontFamily: fonts.sansSemiBold,
     fontSize: 11,
     color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+  },
+  emptyText: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 14,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xl,
   },
 });

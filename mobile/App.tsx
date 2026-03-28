@@ -24,8 +24,10 @@ import { DealsScreen } from './src/screens/DealsScreen';
 import { ActivityScreen } from './src/screens/ActivityScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { ItemDetailScreen } from './src/screens/ItemDetailScreen';
+import AuthScreen from './src/screens/AuthScreen';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { colors, fonts } from './src/theme/colors';
-import type { WishlistItem } from './src/data/mockData';
+import type { WishlistItem } from './src/types';
 
 export type WishlistStackParamList = {
   WishlistMain: undefined;
@@ -59,6 +61,56 @@ function DealsStackScreen() {
   );
 }
 
+function Main() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!user) return <AuthScreen />;
+
+  return (
+    <NavigationContainer>
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: colors.card,
+            borderTopColor: colors.border,
+            borderTopWidth: 1,
+            height: 60,
+            paddingBottom: 8,
+            paddingTop: 6,
+          },
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.mutedForeground,
+          tabBarLabelStyle: {
+            fontFamily: fonts.sansSemiBold,
+            fontSize: 10,
+          },
+          tabBarIcon: ({ color, focused }) => {
+            const strokeWidth = focused ? 2.5 : 1.5;
+            if (route.name === 'Wishlist') return <Grid3x3 size={20} color={color} strokeWidth={strokeWidth} />;
+            if (route.name === 'Deals') return <Tag size={20} color={color} strokeWidth={strokeWidth} />;
+            if (route.name === 'Activity') return <Clock size={20} color={color} strokeWidth={strokeWidth} />;
+            if (route.name === 'Profile') return <User size={20} color={color} strokeWidth={strokeWidth} />;
+          },
+        })}
+      >
+        <Tab.Screen name="Wishlist" component={WishlistStackScreen} />
+        <Tab.Screen name="Deals" component={DealsStackScreen} />
+        <Tab.Screen name="Activity" component={ActivityScreen} />
+        <Tab.Screen name="Profile" component={ProfileScreen} />
+      </Tab.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts({
     Syne_700Bold,
@@ -80,39 +132,9 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <Tab.Navigator
-          screenOptions={({ route }) => ({
-            headerShown: false,
-            tabBarStyle: {
-              backgroundColor: colors.card,
-              borderTopColor: colors.border,
-              borderTopWidth: 1,
-              height: 60,
-              paddingBottom: 8,
-              paddingTop: 6,
-            },
-            tabBarActiveTintColor: colors.primary,
-            tabBarInactiveTintColor: colors.mutedForeground,
-            tabBarLabelStyle: {
-              fontFamily: fonts.sansSemiBold,
-              fontSize: 10,
-            },
-            tabBarIcon: ({ color, focused }) => {
-              const strokeWidth = focused ? 2.5 : 1.5;
-              if (route.name === 'Wishlist') return <Grid3x3 size={20} color={color} strokeWidth={strokeWidth} />;
-              if (route.name === 'Deals') return <Tag size={20} color={color} strokeWidth={strokeWidth} />;
-              if (route.name === 'Activity') return <Clock size={20} color={color} strokeWidth={strokeWidth} />;
-              if (route.name === 'Profile') return <User size={20} color={color} strokeWidth={strokeWidth} />;
-            },
-          })}
-        >
-          <Tab.Screen name="Wishlist" component={WishlistStackScreen} />
-          <Tab.Screen name="Deals" component={DealsStackScreen} />
-          <Tab.Screen name="Activity" component={ActivityScreen} />
-          <Tab.Screen name="Profile" component={ProfileScreen} />
-        </Tab.Navigator>
-      </NavigationContainer>
+      <AuthProvider>
+        <Main />
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }
