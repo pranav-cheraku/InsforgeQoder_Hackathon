@@ -5,68 +5,51 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   ActivityIndicator,
 } from 'react-native';
-import { ChevronLeft, Check, RefreshCw } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChevronLeft } from 'lucide-react-native';
 import { BarChart } from 'react-native-gifted-charts';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
-import { getPriceHistory, scanItem, sourceColor, type ApiItem, type HistoryEntry } from '../api/client';
 import { colors, fonts, radius, spacing } from '../theme/colors';
 import type { WishlistStackParamList } from '../../App';
+import type { PricePoint } from '../types';
+import { api } from '../services/api';
 
 type RouteProps = RouteProp<WishlistStackParamList, 'ItemDetail'>;
 
 export const ItemDetailScreen = () => {
   const navigation = useNavigation();
   const route = useRoute<RouteProps>();
-  const { item: initialItem } = route.params;
+  const { item } = route.params;
 
-  const [item, setItem] = useState<ApiItem>(initialItem);
-  const [history, setHistory] = useState<Record<string, HistoryEntry[]>>({});
-  const [scanning, setScanning] = useState(false);
-
-  const runScan = async () => {
-    setScanning(true);
-    try {
-      const updated = await scanItem(item.id);
-      setItem(updated);
-      const h = await getPriceHistory(item.id);
-      setHistory(h);
-    } catch (e) {
-      // ignore
-    }
-    setScanning(false);
-  };
+  const [history, setHistory] = useState<PricePoint[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
   useEffect(() => {
-    getPriceHistory(item.id).then(setHistory).catch(() => {});
-    // Auto-scan if no price data yet
-    if (item.sources.length === 0) {
-      runScan();
-    }
-  }, []);
+    api.priceHistory.getForItem(item.id)
+      .then(setHistory)
+      .catch(console.error)
+      .finally(() => setLoadingHistory(false));
+  }, [item.id]);
 
-  // Flatten all history entries sorted by time for the chart
-  const allEntries = Object.values(history)
-    .flat()
-    .filter((e) => e.price != null)
-    .sort((a, b) => new Date(a.scraped_at).getTime() - new Date(b.scraped_at).getTime())
-    .slice(-30);
+  const prices = history.map((p) => p.price);
+  const allTimeLow = prices.length > 0 ? Math.min(...prices) : item.current_price;
+  const avgPrice = prices.length > 0
+    ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
+    : item.current_price;
 
-  const historyPrices = allEntries.map((e) => e.price as number);
-  const allTimeLow = historyPrices.length > 0 ? Math.min(...historyPrices) : null;
-
-  const barData = historyPrices.map((val, i) => ({
+  // Use last 30 data points for chart
+  const chartPrices = prices.slice(-30);
+  const barData = chartPrices.map((val, i) => ({
     value: val,
-    frontColor: i === historyPrices.length - 1 ? colors.primary : '#F4A7B1',
+    frontColor: i === chartPrices.length - 1 ? colors.primary : '#F4A7B1',
   }));
 
-  // Sources from the item (already computed by backend)
-  const sortedSources = [...item.sources].sort((a, b) => a.price - b.price);
-  const bestSource = sortedSources[0] ?? null;
-  const savings = item.avg_price && bestSource ? Math.round(item.avg_price - bestSource.price) : 0;
+  const savings = item.highest_price > 0
+    ? (item.highest_price - item.current_price).toFixed(2)
+    : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -76,27 +59,20 @@ export const ItemDetailScreen = () => {
           <ChevronLeft size={24} color={colors.foreground} />
         </TouchableOpacity>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.headerSub}>
-            {scanning ? 'Scanning prices...' : item.sources.length > 0 ? `${item.sources.length} sources` : 'No data yet'}
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {item.product_name ?? 'Product'}
           </Text>
+          <Text style={styles.headerSub}>{item.retailer ?? item.product_url}</Text>
         </View>
-        {scanning ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : (
-          <TouchableOpacity onPress={runScan} style={styles.refreshBtn}>
-            <RefreshCw size={18} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Stat cards */}
         <View style={styles.statsRow}>
           {[
-            { label: 'Best now', value: bestSource ? `$${bestSource.price}` : '—', color: colors.primary },
-            { label: 'Avg price', value: item.avg_price != null ? `$${Math.round(item.avg_price)}` : '—', color: colors.foreground },
-            { label: 'All-time low', value: allTimeLow != null ? `$${allTimeLow}` : '—', color: colors.dealGreen },
+            { label: 'Current', value: item.current_price > 0 ? `$${item.current_price.toFixed(0)}` : '—', color: colors.primary },
+            { label: 'Target', value: `$${item.target_price.toFixed(0)}`, color: colors.foreground },
+            { label: 'All-time low', value: allTimeLow > 0 ? `$${allTimeLow.toFixed(0)}` : '—', color: colors.dealGreen },
           ].map((stat) => (
             <View key={stat.label} style={styles.statCard}>
               <Text style={styles.statLabel}>{stat.label}</Text>
@@ -106,10 +82,20 @@ export const ItemDetailScreen = () => {
         </View>
 
         {/* Price chart */}
-        {barData.length > 0 && (
-          <View style={styles.chartSection}>
-            <Text style={styles.sectionLabel}>Price history</Text>
-            <View style={styles.chartCard}>
+        <View style={styles.chartSection}>
+          <Text style={styles.sectionLabel}>
+            Price history {chartPrices.length > 0 ? `(${chartPrices.length} snapshots)` : ''}
+          </Text>
+          <View style={styles.chartCard}>
+            {loadingHistory ? (
+              <View style={styles.chartPlaceholder}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : chartPrices.length === 0 ? (
+              <View style={styles.chartPlaceholder}>
+                <Text style={styles.noDataText}>No price history yet</Text>
+              </View>
+            ) : (
               <BarChart
                 data={barData}
                 barWidth={7}
@@ -124,40 +110,35 @@ export const ItemDetailScreen = () => {
                 height={100}
                 width={280}
                 barBorderRadius={2}
-                labelWidth={40}
               />
-            </View>
-          </View>
-        )}
-
-        {/* Sources */}
-        {sortedSources.length > 0 && (
-          <View style={styles.sourcesSection}>
-            <Text style={styles.sectionLabel}>Prices across sources</Text>
-            {savings > 0 && (
-              <View style={styles.bestDealRow}>
-                <Text style={styles.bestDealText}>Best deal found</Text>
-                <Text style={styles.bestDealText}>Save ${savings}</Text>
-              </View>
             )}
-            <View style={styles.sourcesCard}>
-              {sortedSources.map((source, i) => (
-                <View
-                  key={source.source_name}
-                  style={[
-                    styles.sourceRow,
-                    i < sortedSources.length - 1 && styles.sourceRowBorder,
-                  ]}
-                >
-                  <View style={[styles.sourceDot, { backgroundColor: sourceColor(source.source_name) }]} />
-                  <Text style={styles.sourceName}>{source.source_name}</Text>
-                  <Text style={styles.sourcePrice}>${source.price}</Text>
-                  {i === 0 && <Check size={16} color={colors.dealGreen} />}
-                </View>
-              ))}
-            </View>
           </View>
-        )}
+        </View>
+
+        {/* Price info section */}
+        <View style={styles.infoSection}>
+          <Text style={styles.sectionLabel}>Price info</Text>
+          {savings && Number(savings) > 0 && (
+            <View style={styles.bestDealRow}>
+              <Text style={styles.bestDealText}>Below peak</Text>
+              <Text style={styles.bestDealText}>Save ${savings}</Text>
+            </View>
+          )}
+          <View style={styles.infoCard}>
+            {[
+              { label: 'Current price', value: item.current_price > 0 ? `$${item.current_price.toFixed(2)}` : 'Not scraped yet' },
+              { label: 'Target price', value: `$${item.target_price.toFixed(2)}` },
+              { label: 'Highest seen', value: item.highest_price > 0 ? `$${item.highest_price.toFixed(2)}` : '—' },
+              { label: '30-day avg', value: prices.length > 0 ? `$${avgPrice}` : '—' },
+              { label: 'Status', value: item.status },
+            ].map((row, i, arr) => (
+              <View key={row.label} style={[styles.infoRow, i < arr.length - 1 && styles.infoRowBorder]}>
+                <Text style={styles.infoLabel}>{row.label}</Text>
+                <Text style={styles.infoValue}>{row.value}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -179,9 +160,6 @@ const styles = StyleSheet.create({
   backBtn: {
     padding: spacing.xs,
     marginLeft: -spacing.xs,
-  },
-  refreshBtn: {
-    padding: spacing.xs,
   },
   headerText: {
     flex: 1,
@@ -247,7 +225,17 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     overflow: 'hidden',
   },
-  sourcesSection: {},
+  chartPlaceholder: {
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noDataText: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    color: colors.mutedForeground,
+  },
+  infoSection: {},
   bestDealRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -259,39 +247,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primary,
   },
-  sourcesCard: {
+  infoCard: {
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.card,
     overflow: 'hidden',
   },
-  sourceRow: {
+  infoRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
   },
-  sourceRowBorder: {
+  infoRowBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  sourceDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
-  sourceName: {
-    flex: 1,
+  infoLabel: {
     fontFamily: fonts.sansRegular,
     fontSize: 14,
     color: colors.foreground,
   },
-  sourcePrice: {
+  infoValue: {
     fontFamily: fonts.mono,
     fontSize: 14,
-    color: colors.foreground,
+    color: colors.mutedForeground,
+    textTransform: 'capitalize',
   },
 });

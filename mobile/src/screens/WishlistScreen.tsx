@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,63 +6,137 @@ import {
   TouchableOpacity,
   TextInput,
   FlatList,
-  SafeAreaView,
-  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
-import { Bell, Clock } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Bell, Plus } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { getItems, getAlerts, type ApiItem } from '../api/client';
 import { ItemCard } from '../components/ItemCard';
 import { colors, fonts, spacing } from '../theme/colors';
 import type { WishlistStackParamList } from '../../App';
+import type { WishlistItem } from '../types';
+import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
-type SubTab = 'wishlist' | 'deals' | 'activity';
+const API_BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+
 type NavProp = NativeStackNavigationProp<WishlistStackParamList, 'WishlistMain'>;
 
 export const WishlistScreen = () => {
-  const [subTab, setSubTab] = useState<SubTab>('wishlist');
-  const [items, setItems] = useState<ApiItem[]>([]);
-  const [alertCount, setAlertCount] = useState(0);
-  const [inputText, setInputText] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const [items, setItems] = useState<WishlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [url, setUrl] = useState('');
+  const [targetPrice, setTargetPrice] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const navigation = useNavigation<NavProp>();
+  const { user } = useAuth();
 
-  const load = useCallback(async () => {
+  const loadItems = useCallback(async () => {
+    if (!user) return;
     try {
-      const [fetchedItems, fetchedAlerts] = await Promise.all([getItems(), getAlerts()]);
-      setItems(fetchedItems);
-      setAlertCount(fetchedAlerts.length);
+      const data = await api.wishlist.getAll(user.id);
+      setItems(data);
     } catch (e) {
-      // silently fail — show empty state
+      console.error('Failed to load wishlist:', e);
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [user]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    loadItems();
+  }, [loadItems]);
 
   // Reload when navigating back from SearchResults
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', load);
+    const unsubscribe = navigation.addListener('focus', loadItems);
     return unsubscribe;
-  }, [navigation, load]);
+  }, [navigation, loadItems]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
+  const handleAddItem = async () => {
+    const text = url.trim();
+    if (!text || !user) return;
+    setAddError(null);
+    setSuccessMsg(null);
 
-  const handleAddItem = () => {
-    const text = inputText.trim();
-    if (!text) return;
-    setInputText('');
-    navigation.navigate('SearchResults', { query: text });
+    const isUrl = text.startsWith('http://') || text.startsWith('https://');
+
+    if (isUrl) {
+      const price = parseFloat(targetPrice);
+      if (isNaN(price) || price <= 0) {
+        setAddError('Enter a target price to track this URL.');
+        return;
+      }
+      setAddingItem(true);
+      try {
+        const newItem = await api.wishlist.add({
+          user_id: user.id,
+          product_url: text,
+          product_name: null,
+          retailer: null,
+          image_url: null,
+          target_price: price,
+          status: 'watching',
+        });
+        api.agent.triggerScrape(newItem.id).catch(() => {});
+        setUrl('');
+        setTargetPrice('');
+        setSuccessMsg('Added! Agent is monitoring.');
+        setTimeout(() => setSuccessMsg(null), 3000);
+        await loadItems();
+      } catch (e: any) {
+        console.error('[Wishlist] add failed:', e);
+        setAddError(e?.message ?? 'Failed to add item. Try again.');
+      } finally {
+        setAddingItem(false);
+      }
+      return;
+    }
+
+    // Natural language — auto-identify best product match
+    setAddingItem(true);
+    try {
+      const res = await fetch(`${API_BASE}/identify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? `Server error ${res.status}`);
+      }
+      const identified = await res.json();
+      if (!identified.product_url) throw new Error('Could not find a product URL. Try being more specific.');
+
+      const newItem = await api.wishlist.add({
+        user_id: user.id,
+        product_url: identified.product_url,
+        product_name: identified.product_name,
+        retailer: identified.retailer,
+        image_url: null,
+        target_price: identified.price_estimate ?? 0,
+        status: 'watching',
+      });
+      api.agent.triggerScrape(newItem.id).catch(() => {});
+      setUrl('');
+      setTargetPrice('');
+      setSuccessMsg(`Monitoring "${identified.product_name}"`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+      await loadItems();
+    } catch (e: any) {
+      console.error('[Wishlist] identify failed:', e);
+      setAddError(e?.message ?? 'Could not identify product. Try again.');
+    } finally {
+      setAddingItem(false);
+    }
   };
 
-  const handleSelectItem = (item: ApiItem) => {
-    navigation.navigate('ItemDetail', { item });
-  };
+  const watching = items.filter((i) => i.status === 'watching');
+  const bought = items.filter((i) => i.status === 'bought');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -72,59 +146,98 @@ export const WishlistScreen = () => {
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn}>
             <Bell size={20} color={colors.foreground} />
-            {alertCount > 0 && (
+            {watching.length > 0 && (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{alertCount}</Text>
+                <Text style={styles.badgeText}>{watching.length}</Text>
               </View>
             )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Clock size={20} color={colors.foreground} />
-          </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Sub tabs */}
-      <View style={styles.subTabRow}>
-        {(['wishlist', 'deals', 'activity'] as SubTab[]).map((tab) => (
-          <TouchableOpacity key={tab} onPress={() => setSubTab(tab)} style={styles.subTabBtn}>
-            <Text style={[styles.subTabText, subTab === tab && styles.subTabTextActive]}>
-              {tab}
-            </Text>
-            {subTab === tab && <View style={styles.subTabUnderline} />}
-          </TouchableOpacity>
-        ))}
       </View>
 
       {/* Add item input */}
       <View style={styles.inputWrapper}>
         <TextInput
-          placeholder="Add item or paste URL..."
+          placeholder="What are you looking for?"
           placeholderTextColor="rgba(255,255,255,0.5)"
-          style={styles.input}
-          value={inputText}
-          onChangeText={setInputText}
+          style={[styles.input, styles.inputUrl]}
+          value={url}
+          onChangeText={setUrl}
           onSubmitEditing={handleAddItem}
-          returnKeyType="done"
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
+        <TextInput
+          placeholder="Target $"
+          placeholderTextColor="rgba(255,255,255,0.5)"
+          style={[styles.input, styles.inputPrice]}
+          value={targetPrice}
+          onChangeText={setTargetPrice}
+          keyboardType="decimal-pad"
+        />
+        <TouchableOpacity
+          style={[styles.addBtn, (!url.trim() || addingItem) && styles.addBtnDisabled]}
+          onPress={handleAddItem}
+          disabled={!url.trim() || addingItem}
+        >
+          {addingItem ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Plus size={18} color="#fff" />
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Watching label */}
-      <View style={styles.watchingRow}>
-        <Text style={styles.watchingLabel}>Watching ({items.length})</Text>
-      </View>
+      {addError ? (
+        <Text style={styles.addError}>{addError}</Text>
+      ) : successMsg ? (
+        <Text style={styles.successMsg}>{successMsg}</Text>
+      ) : null}
 
-      {/* Items list */}
-      <FlatList
-        data={items}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        renderItem={({ item }) => (
-          <ItemCard item={item} onPress={handleSelectItem} />
-        )}
-      />
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+          ListHeaderComponent={
+            <>
+              {watching.length > 0 && (
+                <Text style={styles.sectionLabel}>Watching ({watching.length})</Text>
+              )}
+            </>
+          }
+          ListFooterComponent={
+            bought.length > 0 ? (
+              <View style={{ marginTop: spacing.xl }}>
+                <Text style={[styles.sectionLabel, { marginBottom: spacing.md }]}>
+                  Bought ({bought.length})
+                </Text>
+                {bought.map((item) => (
+                  <View key={item.id} style={{ marginBottom: spacing.md }}>
+                    <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
+                  </View>
+                ))}
+              </View>
+            ) : null
+          }
+          renderItem={({ item }) =>
+            item.status === 'watching' ? (
+              <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
+            ) : null
+          }
+          ListEmptyComponent={
+            <View style={styles.center}>
+              <Text style={styles.emptyText}>No items yet. Add a product URL above.</Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -173,39 +286,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: colors.primaryForeground,
   },
-  subTabRow: {
-    flexDirection: 'row',
-    gap: 24,
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  subTabBtn: {
-    paddingBottom: spacing.sm,
-    position: 'relative',
-  },
-  subTabText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 14,
-    color: colors.mutedForeground,
-    textTransform: 'capitalize',
-  },
-  subTabTextActive: {
-    color: colors.primary,
-  },
-  subTabUnderline: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: colors.primary,
-    borderRadius: 1,
-  },
   inputWrapper: {
+    flexDirection: 'row',
     paddingHorizontal: spacing.lg,
     marginTop: spacing.lg,
+    gap: spacing.sm,
   },
   input: {
     backgroundColor: colors.foreground,
@@ -216,20 +301,66 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     fontSize: 14,
   },
-  watchingRow: {
+  inputUrl: {
+    flex: 1,
+  },
+  inputPrice: {
+    width: 80,
+    textAlign: 'center',
+  },
+  addBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  addBtnDisabled: {
+    opacity: 0.4,
+  },
+  addError: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: '#ff6b6b',
     paddingHorizontal: spacing.lg,
-    marginTop: spacing.xl,
+    marginTop: spacing.xs,
     marginBottom: spacing.sm,
   },
-  watchingLabel: {
+  successMsg: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.dealGreen,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  sectionLabel: {
     fontFamily: fonts.sansSemiBold,
     fontSize: 11,
     color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+  },
+  emptyText: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 14,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xl,
   },
 });

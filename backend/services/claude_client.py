@@ -22,7 +22,7 @@ async def extract_price_from_html(html: str, item_name: str) -> dict:
     text = re.sub(r'<[^>]+>', ' ', html)
     text = re.sub(r'\s+', ' ', text).strip()[:8000]
     response = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=300,
         system=PRICE_EXTRACTION_SYSTEM,
         messages=[{

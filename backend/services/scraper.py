@@ -63,7 +63,7 @@ async def fetch_prices(item_name: str) -> list:
     # Try web search first
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             system=PRICE_SEARCH_SYSTEM,
@@ -81,7 +81,7 @@ async def fetch_prices(item_name: str) -> list:
     # Fallback: Claude knowledge-based prices
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=512,
             system=PRICE_FALLBACK_SYSTEM,
             messages=[{"role": "user", "content": f"Product: {item_name}"}],

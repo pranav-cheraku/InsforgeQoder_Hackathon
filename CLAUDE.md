@@ -5,64 +5,57 @@ DealFlow is an autonomous AI shopping agent built for the Insforge x Qoder AI Ag
 
 **Pitch:** "Robinhood for your Amazon cart — an AI agent that times your purchases so you never overpay again."
 
-## Scope: Backend & Agent Logic Only
-This repo owns:
-- **InsForge Edge Functions** — 4 Deno serverless agent functions
-- **Database schema** — PostgreSQL tables + RLS + triggers
-- **Agent definitions** — trading algorithm, signal computation, LLM reasoning
-- **Documentation** — architecture, API contracts, deploy instructions
-
-Frontend (React Native) is owned by a separate team member.
-
 ## Tech Stack
-- **Backend:** InsForge (PostgreSQL, Auth, Edge Functions, Realtime, Storage, AI Gateway)
-- **Edge Functions:** Deno runtime — **no SDK** (direct REST API calls, see note below)
-- **LLM:** InsForge AI Gateway → `anthropic/claude-3.5-haiku` via `POST /api/ai/chat/completion`
-- **Dev Tool:** Qoder (dynamic scraper generation at runtime)
-
-> **Note:** `npm:@insforge/sdk` has a broken internal dependency (`@insforge/shared-schemas@1.1.46`) that causes BOOT_FAILURE on the InsForge deployment platform. All functions use direct HTTP REST calls instead:
-> - DB: `GET|POST|PATCH /api/database/records/{table}`
-> - AI: `POST /api/ai/chat/completion` → response field is `text` (not `choices[0].message.content`)
-> - Realtime: WebSocket/Socket.IO only — notification-dispatcher logs events but cannot push via REST
-> - Inter-function HTTP calls cause `LOOP_DETECTED` — `confirm-buy` inlines buy logic instead of calling `buy-executor`
+- **Mobile:** React Native (Expo) + TypeScript — `mobile/`
+- **Backend BaaS:** InsForge (PostgreSQL, Auth, Edge Functions, Realtime, Storage, AI Gateway)
+- **Edge Functions:** Deno runtime (`npm:@insforge/sdk`) — `insforge/functions/`
+- **Agent/Scraper:** Python + crawl4ai + Anthropic SDK — `agent/`
+- **LLM:** Anthropic claude-haiku-4-5 (price extraction + trading reasoning)
 
 ## InsForge Project
-- **OSS Host:** `https://nstb9s8d.us-west.insforge.app`
+- **Host:** `https://nstb9s8d.us-west.insforge.app`
 - **Project ID:** `a3c257ec-9dbc-4509-ad96-59781eb5ea3b`
 - **Region:** `us-west`
 - Config: `.insforge/project.json` (gitignored — never commit)
 
 ## Environment Variables
-See `.env.example`. Required secrets for Edge Functions:
+Mobile — copy `mobile/.env.example` → `mobile/.env`
+Agent — copy `agent/.env.example` → `agent/.env`
+
+Edge Function secrets:
 ```bash
 npx @insforge/cli secrets add INSFORGE_BASE_URL https://nstb9s8d.us-west.insforge.app
 npx @insforge/cli secrets add ANON_KEY your_anon_key_here
+npx @insforge/cli secrets add AGENT_WORKER_URL http://your-agent-worker-url
 ```
 
 ## Project Structure
 ```
-insforge/functions/
-  trading-agent/index.ts        — Scoring engine + LLM reasoning, sets pending_buy on BUY
-  confirm-buy/index.ts          — User-triggered: executes confirmed purchase
-  buy-executor/index.ts         — Records transaction, updates status, deducts wallet
-  notification-dispatcher/index.ts — Logs and returns realtime event payloads
+mobile/                               — Expo React Native app
+  src/screens/                        — Wishlist, Deals, Activity, ItemDetail, Profile
+  src/components/                     — ItemCard, shared UI
+  src/theme/colors.ts                 — Design tokens
 
-agents/
-  trading-agent.md              — Agent definition, signals, deploy instructions
-  confirm-buy.md                — Confirm-buy agent definition
-  buy-executor.md               — Buy executor definition
-  notification-dispatcher.md    — Notification agent definition
+insforge/functions/                   — Deno edge functions (deployed to InsForge)
+  price-scraper/index.js              — Triggers Python agent, writes price_history
+  trading-agent/index.js              — Scoring engine + LLM reasoning, BUY/WATCH/HOLD
+  buy-executor/index.js               — Records transaction, updates status, deducts wallet
+  notification-dispatcher/index.js    — Pushes realtime events to frontend
 
-docs/
-  architecture.md               — Full system design and data flow
-  database-schema.md            — Table schemas + RLS policies
-  api-contracts.md              — Edge Function request/response contracts
-  trading-algorithm.md          — Signal indicators and decision thresholds
-  database-setup.sql            — All SQL to run in InsForge
+agent/src/                            — Python distributed scraper worker
+  scraper/price_extractor.py          — crawl4ai + Claude Haiku extracts price from any URL
+  trading/signals.py                  — 4-indicator signal computation
+  trading/decision.py                 — BUY/WATCH/HOLD decision engine
+  reasoning/explainer.py              — Claude Haiku generates plain-English reasoning
+  main.py                             — FastAPI worker (receives jobs, runs agentic loop)
+
+agents/                               — Agent definition docs (specs + deploy instructions)
+docs/                                 — Architecture, API contracts, DB schema, algorithm spec
+  docs/database-setup.sql            — Single source of truth for DB (run this in InsForge)
 ```
 
 ## Database Tables
-- `users` — wallet balance, display name (auto-created on auth signup)
+- `users` — wallet balance, display name (auto-created on auth signup via trigger)
 - `wishlist_items` — product URL, target price, current price, status (watching/bought/paused)
 - `price_history` — time series of price snapshots per item
 - `transactions` — completed buys with AI-generated reasoning + saved_amount
@@ -81,64 +74,44 @@ docs/
 
 ## Quick Deploy Sequence
 ```bash
-# 1. Verify auth + project link
-npx @insforge/cli whoami
-npx @insforge/cli current
-
-# 2. Set up database
+# 1. Database (single source of truth — run once in InsForge)
 npx @insforge/cli db import docs/database-setup.sql
 
-# 3. Add secrets
+# 2. Edge function secrets
 npx @insforge/cli secrets add INSFORGE_BASE_URL https://nstb9s8d.us-west.insforge.app
 npx @insforge/cli secrets add ANON_KEY your_anon_key_here
+npx @insforge/cli secrets add AGENT_WORKER_URL http://your-deployed-agent
 
-# 4. Deploy all edge functions
-npx @insforge/cli functions deploy notification-dispatcher
-npx @insforge/cli functions deploy buy-executor
+# 3. Deploy edge functions
+npx @insforge/cli functions deploy price-scraper
 npx @insforge/cli functions deploy trading-agent
-npx @insforge/cli functions deploy confirm-buy
+npx @insforge/cli functions deploy buy-executor
+npx @insforge/cli functions deploy notification-dispatcher
 
-# 5. Verify
-npx @insforge/cli functions list
+# 4. Start Python agent worker
+cd agent && pip install -r requirements.txt
+uvicorn src.main:app --host 0.0.0.0 --port 8000
 
-# 6. Seed demo data (after sign-up — replace DEMO_USER_ID)
-# Edit and run the seed section in docs/database-setup.sql
+# 5. Run mobile app
+cd mobile && npm install && npx expo start --clear
 ```
 
-## Testing Functions
+## Testing Edge Functions
 ```bash
-# 1. Run the trading agent — returns decision + signals
+# Test scraper trigger
+npx @insforge/cli functions invoke price-scraper \
+  --data '{"item_id": "uuid", "product_url": "https://amazon.com/dp/B08N5KWB9H"}'
+
+# Test trading agent
 npx @insforge/cli functions invoke trading-agent \
   --data '{"item_id": "uuid"}'
-# On BUY: item status becomes 'pending_buy', buy_pending event fired
 
-# 3. Confirm the buy (user action)
-npx @insforge/cli functions invoke confirm-buy \
-  --data '{"item_id": "uuid"}'
-# Status becomes 'bought', budget deducted, buy_executed event fired
-
-# Cancel a pending buy (reset to watching)
-npx @insforge/cli db query "UPDATE wishlist_items SET status='watching' WHERE id='uuid'"
-
-# Check logs if something fails
+# Logs
 npx @insforge/cli logs function.logs
 ```
 
-## API Contracts (for frontend teammate)
-See `docs/api-contracts.md` for all Edge Function request/response shapes and realtime event schemas.
-
-## Realtime Channels (frontend needs these)
+## Realtime Channels (mobile subscribes to these)
 ```
-dealflow:updates        — Global: buy_pending, agent_decision, price_update, buy_executed
+dealflow:updates        — Global: agent_decision, price_update, buy_executed
 dealflow:user:{uid}     — Per-user notifications
-```
-
-Subscribe pattern (for frontend reference):
-```ts
-await insforge.realtime.connect()
-await insforge.realtime.subscribe('dealflow:updates')
-insforge.realtime.on('buy_pending', handler)     // Show confirmation UI
-insforge.realtime.on('agent_decision', handler)  // WATCH/HOLD decisions
-insforge.realtime.on('price_update', handler)
-insforge.realtime.on('buy_executed', handler)
 ```

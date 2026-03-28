@@ -3,37 +3,18 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
-  SafeAreaView,
+  ActivityIndicator,
   Animated,
 } from 'react-native';
-import { MapPin, CheckCircle } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { MapPin, ShoppingBag } from 'lucide-react-native';
 
-import {
-  getAlerts,
-  dismissAlert,
-  approveAlert,
-  type ApiAlert,
-  type OrderConfirmation,
-} from '../api/client';
 import { colors, fonts, radius, spacing } from '../theme/colors';
-
-function dotColorForAlert(alert: ApiAlert): string {
-  if (alert.alert_type === 'target_price') return colors.primary;
-  if (alert.alert_type === 'price_drop') return colors.dealGreen;
-  return colors.dotGray;
-}
-
-function timeAgo(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
+import type { Transaction } from '../types';
+import { api } from '../services/api';
+import { insforge } from '../services/insforge';
+import { useAuth } from '../context/AuthContext';
 
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -54,97 +35,98 @@ function PulseDot({ color }: { color: string }) {
   );
 }
 
+function formatTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export const ActivityScreen = () => {
-  const [alerts, setAlerts] = useState<ApiAlert[]>([]);
-  const [order, setOrder] = useState<OrderConfirmation | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
-  const load = useCallback(async () => {
-    try {
-      setAlerts(await getAlerts());
-    } catch (e) {
-      // silently fail
-    }
-  }, []);
+  const loadTransactions = useCallback(() => {
+    if (!user) return;
+    api.transactions.getAll(user.id).then(setTransactions).catch(console.error);
+  }, [user]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!user) return;
+    api.transactions.getAll(user.id)
+      .then(setTransactions)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [user]);
 
-  const pendingAlert = alerts.find((a) => a.requires_permission && !a.dismissed);
-  const activityAlerts = alerts.filter((a) => !a.requires_permission || a.id !== pendingAlert?.id);
-
-  const handleSkip = async () => {
-    if (!pendingAlert) return;
-    await dismissAlert(pendingAlert.id);
-    setOrder(null);
-    await load();
-  };
-
-  const handleBuy = async () => {
-    if (!pendingAlert) return;
-    const confirmation = await approveAlert(pendingAlert.id);
-    setOrder(confirmation);
-    await load();
-  };
+  // Refresh on buy_executed realtime event
+  useEffect(() => {
+    if (!user) return;
+    const channel = `dealflow:user:${user.id}`;
+    insforge.realtime.connect().then(() => {
+      insforge.realtime.subscribe(channel);
+      insforge.realtime.on('buy_executed', loadTransactions);
+    }).catch(console.error);
+    return () => {
+      insforge.realtime.off('buy_executed', loadTransactions);
+      insforge.realtime.unsubscribe(channel);
+    };
+  }, [user, loadTransactions]);
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.brand}>drip.</Text>
         <MapPin size={20} color={colors.foreground} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Agent permission card */}
-        {pendingAlert && !order && (
-          <View style={styles.agentCard}>
-            <Text style={styles.agentTitle}>Agent wants to buy</Text>
-            <Text style={styles.agentBody}>{pendingAlert.message}</Text>
-            <Text style={styles.agentMeta}>
-              ${pendingAlert.price} · {pendingAlert.source_name} · Ships in 2 days
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : transactions.length === 0 ? (
+          <View style={styles.center}>
+            <ShoppingBag size={32} color={colors.mutedForeground} />
+            <Text style={styles.emptyText}>
+              No purchases yet.{'\n'}The agent will buy when prices hit your targets.
             </Text>
-            <View style={styles.agentActions}>
-              <TouchableOpacity style={styles.skipBtn} onPress={handleSkip} activeOpacity={0.7}>
-                <Text style={styles.skipText}>Skip</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.buyBtn} onPress={handleBuy} activeOpacity={0.8}>
-                <Text style={styles.buyText}>Buy now</Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        )}
-
-        {order && (
-          <View style={styles.successCard}>
-            <CheckCircle size={24} color={colors.dealGreen} />
-            <View style={styles.successText}>
-              <Text style={styles.successTitle}>Order placed · {order.order_id}</Text>
-              <Text style={styles.successMeta}>
-                {order.item_name} · ${order.price} · {order.estimated_delivery}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Recent Activity */}
-        {activityAlerts.length > 0 && (
+        ) : (
           <>
-            <Text style={styles.sectionLabel}>Recent Activity</Text>
+            <Text style={styles.sectionLabel}>Purchase History</Text>
             <View style={styles.activityList}>
-              {activityAlerts.map((alert) => (
-                <View key={alert.id} style={styles.activityRow}>
-                  <View style={styles.dotWrapper}>
-                    <PulseDot color={dotColorForAlert(alert)} />
+              {transactions.map((tx) => {
+                const name = tx.wishlist_items?.product_name ?? 'Item';
+                const saved = tx.saved_amount > 0 ? ` · saved $${tx.saved_amount.toFixed(2)}` : '';
+                const dotColor = tx.saved_amount > 10 ? colors.dealGreen : colors.primary;
+
+                return (
+                  <View key={tx.id} style={styles.activityRow}>
+                    <View style={styles.dotWrapper}>
+                      <PulseDot color={dotColor} />
+                    </View>
+                    <View style={styles.activityContent}>
+                      <Text style={styles.activityText}>
+                        <Text style={styles.activityTitle}>{name}</Text>
+                        {'  '}
+                        <Text style={styles.activityDesc}>
+                          bought for ${tx.buy_price.toFixed(2)}{saved}
+                        </Text>
+                      </Text>
+                      {tx.reasoning && (
+                        <View style={styles.reasoningCard}>
+                          <Text style={styles.reasoningText} numberOfLines={3}>{tx.reasoning}</Text>
+                        </View>
+                      )}
+                      <Text style={styles.activityTime}>{formatTime(tx.decided_at)}</Text>
+                    </View>
                   </View>
-                  <View style={styles.activityContent}>
-                    <Text style={styles.activityText}>
-                      <Text style={styles.activityTitle}>{alert.source_name}</Text>
-                      {'  '}
-                      <Text style={styles.activityDesc}>{alert.message}</Text>
-                    </Text>
-                    <Text style={styles.activityTime}>{timeAgo(alert.created_at)}</Text>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </>
         )}
@@ -176,91 +158,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
   },
-  agentCard: {
-    backgroundColor: colors.bgAlert,
-    borderWidth: 1,
-    borderColor: `${colors.primary}1A`,
-    borderRadius: radius.card,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
-  },
-  agentTitle: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: colors.primary,
-    marginBottom: spacing.sm,
-  },
-  agentBody: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 14,
-    color: colors.foreground,
-    lineHeight: 20,
-  },
-  agentMeta: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 12,
-    color: colors.mutedForeground,
-    marginTop: spacing.sm,
-  },
-  agentActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  skipBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-  },
-  skipText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 14,
-    color: colors.foreground,
-  },
-  buyBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  buyText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 14,
-    color: colors.primaryForeground,
-  },
-  successCard: {
-    flexDirection: 'row',
+  center: {
+    paddingTop: 80,
     alignItems: 'center',
     gap: spacing.md,
-    backgroundColor: `${colors.dealGreen}1A`,
-    borderWidth: 1,
-    borderColor: `${colors.dealGreen}33`,
-    borderRadius: radius.card,
-    padding: spacing.lg,
-    marginBottom: spacing.xl,
   },
-  successText: {
-    flex: 1,
-  },
-  successTitle: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: colors.dealGreen,
-  },
-  successMeta: {
+  emptyText: {
     fontFamily: fonts.sansRegular,
-    fontSize: 12,
+    fontSize: 14,
     color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: spacing.md,
   },
   sectionLabel: {
     fontFamily: fonts.sansSemiBold,
@@ -304,10 +213,24 @@ const styles = StyleSheet.create({
   activityDesc: {
     color: colors.mutedForeground,
   },
+  reasoningCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  reasoningText: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: colors.mutedForeground,
+    lineHeight: 16,
+  },
   activityTime: {
     fontFamily: fonts.sansRegular,
     fontSize: 11,
     color: colors.mutedForeground,
-    marginTop: 2,
+    marginTop: 4,
   },
 });
