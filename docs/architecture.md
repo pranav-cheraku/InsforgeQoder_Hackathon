@@ -23,7 +23,11 @@ DealFlow is an autonomous AI shopping agent that monitors product prices using s
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                  Edge Functions (Deno)                    │   │
 │  │                                                           │   │
-│  │  price-scraper  →  trading-agent  →  buy-executor        │   │
+│  │  price-scraper  →  trading-agent  →  [pending_buy]        │   │
+│  │                                        │                  │   │
+│  │                          user confirms → confirm-buy      │   │
+│  │                                        │                  │   │
+│  │                    buy-executor  ←──────┘                 │   │
 │  │                                        │                  │   │
 │  │                           notification-dispatcher         │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -53,10 +57,13 @@ DealFlow is an autonomous AI shopping agent that monitors product prices using s
    → Computes 4 weighted signals → composite score
    → Calls InsForge AI Gateway → Claude Haiku generates reasoning
    → Decision: BUY (≥0.75 + below target) | WATCH (≥0.50) | HOLD
-   → Publishes 'agent_decision' to dealflow:updates channel
+   → On BUY: sets wishlist_items.status = 'pending_buy', publishes 'buy_pending'
+   → On WATCH/HOLD: publishes 'agent_decision' to dealflow:updates channel
         │
-        ▼  (only on BUY decision)
-4. trading-agent invokes buy-executor
+        ▼  (only on BUY — user receives buy_pending notification)
+4. User confirms purchase on frontend
+   → Frontend calls confirm-buy with item_id
+   → confirm-buy verifies status = 'pending_buy'
    → Inserts transaction record
    → Sets wishlist_items.status = 'bought'
    → Deducts buy_price from users.budget
@@ -105,12 +112,15 @@ trading-agent
   ├─► reads price_history
   ├─► computes signals
   ├─► calls AI Gateway for reasoning
-  ├─► (if BUY) invokes buy-executor
-  └─► publishes agent_decision
+  ├─► (if BUY) sets status = pending_buy, publishes buy_pending
+  └─► (if WATCH/HOLD) publishes agent_decision
 
-buy-executor
+confirm-buy  ← called by user via frontend
+  └─► delegates to buy-executor logic inline
+
+buy-executor  ← called directly for testing
   ├─► inserts transaction
-  ├─► updates wishlist status
+  ├─► updates wishlist status → bought
   ├─► deducts wallet
   └─► invokes notification-dispatcher
 

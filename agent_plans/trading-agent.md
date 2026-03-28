@@ -3,19 +3,19 @@ name: trading-agent
 type: edge-function
 slug: trading-agent
 deploy: npx @insforge/cli functions deploy trading-agent
-source: insforge/functions/trading-agent/index.js
+source: insforge/functions/trading-agent/index.ts
 ---
 
 # Trading Agent
 
-The core agent brain. Analyzes price history for a wishlist item and makes an autonomous BUY / WATCH / HOLD decision.
+The core agent brain. Analyzes price history for a wishlist item and makes a BUY / WATCH / HOLD decision. On BUY, it sets the item to `pending_buy` and notifies the user — the purchase only executes after the user confirms via `confirm-buy`.
 
 ## Responsibilities
 - Load price history from `price_history` table (up to 30 records)
 - Compute 4 signal indicators with weighted scoring
 - Generate human-readable reasoning via InsForge AI Gateway (Claude Haiku)
-- Invoke `buy-executor` on BUY decisions
-- Publish `agent_decision` event to `dealflow:updates` realtime channel
+- On BUY: set `wishlist_items.status = 'pending_buy'`, publish `buy_pending` event
+- On WATCH/HOLD: publish `agent_decision` event to `dealflow:updates` realtime channel
 
 ## Signals & Weights
 

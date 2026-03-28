@@ -48,14 +48,24 @@ export const WishlistScreen = () => {
   }, [loadItems]);
 
   const handleAddItem = async () => {
-    if (!url.trim() || !user) return;
+    const text = url.trim();
+    if (!text || !user) return;
+
+    const isUrl = text.startsWith('http://') || text.startsWith('https://');
+    if (!isUrl) {
+      // Non-URL: navigate to search
+      setUrl('');
+      navigation.navigate('SearchResults', { query: text });
+      return;
+    }
+
     const price = parseFloat(targetPrice);
     if (isNaN(price) || price <= 0) return;
     setAddingItem(true);
     try {
       await api.wishlist.add({
         user_id: user.id,
-        product_url: url.trim(),
+        product_url: text,
         product_name: null,
         retailer: null,
         image_url: null,
@@ -95,11 +105,13 @@ export const WishlistScreen = () => {
       {/* Add item input */}
       <View style={styles.inputWrapper}>
         <TextInput
-          placeholder="Paste product URL..."
+          placeholder="Search or paste URL..."
           placeholderTextColor="rgba(255,255,255,0.5)"
           style={[styles.input, styles.inputUrl]}
           value={url}
           onChangeText={setUrl}
+          onSubmitEditing={handleAddItem}
+          returnKeyType="search"
           autoCapitalize="none"
           autoCorrect={false}
         />

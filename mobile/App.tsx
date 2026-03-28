@@ -24,6 +24,7 @@ import { DealsScreen } from './src/screens/DealsScreen';
 import { ActivityScreen } from './src/screens/ActivityScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { ItemDetailScreen } from './src/screens/ItemDetailScreen';
+import { SearchResultsScreen } from './src/screens/SearchResultsScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { colors, fonts } from './src/theme/colors';
@@ -32,6 +33,7 @@ import type { WishlistItem } from './src/types';
 export type WishlistStackParamList = {
   WishlistMain: undefined;
   ItemDetail: { item: WishlistItem };
+  SearchResults: { query: string };
 };
 
 export type DealsStackParamList = {
@@ -48,6 +50,7 @@ function WishlistStackScreen() {
     <WishlistStack.Navigator screenOptions={{ headerShown: false }}>
       <WishlistStack.Screen name="WishlistMain" component={WishlistScreen} />
       <WishlistStack.Screen name="ItemDetail" component={ItemDetailScreen} />
+      <WishlistStack.Screen name="SearchResults" component={SearchResultsScreen} />
     </WishlistStack.Navigator>
   );
 }
