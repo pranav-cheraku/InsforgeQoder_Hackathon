@@ -1,5 +1,5 @@
 -- ============================================================
--- DealFlow Database Setup
+-- Snag Database Setup
 -- Run via: npx @insforge/cli db import docs/database-setup.sql
 -- ============================================================
 
@@ -140,8 +140,8 @@ CREATE INDEX IF NOT EXISTS idx_transactions_decided ON transactions(decided_at D
 
 INSERT INTO realtime.channels (pattern, description, enabled)
 VALUES
-  ('dealflow:updates', 'Global DealFlow agent events and price updates', true),
-  ('dealflow:user:%',  'Per-user notification channel',                  true)
+  ('snag:updates', 'Global Snag agent events and price updates', true),
+  ('snag:user:%',  'Per-user notification channel',                  true)
 ON CONFLICT (pattern) DO UPDATE SET enabled = true;
 
 

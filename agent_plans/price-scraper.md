@@ -16,10 +16,10 @@ Scrapes a product page for the current price and metadata, then stores the resul
 - Use retailer-specific regex patterns for reliable extraction
 - Write to `price_history` table
 - Update `wishlist_items` with latest price, name, retailer, image
-- Publish `price_update` event to `dealflow:updates` channel
+- Publish `price_update` event to `snag:updates` channel
 
 ## Hackathon Differentiator (Qoder Runtime Integration)
-For unknown retailers, the scraper can call Qoder's runtime API to dynamically generate a custom parser for that specific site's HTML structure. This makes DealFlow work with **any** retailer without pre-built scrapers.
+For unknown retailers, the scraper can call Qoder's runtime API to dynamically generate a custom parser for that specific site's HTML structure. This makes Snag work with **any** retailer without pre-built scrapers.
 
 ## Supported Retailers (Built-in)
 - Amazon (`amazon.com`) — `priceAmount`, `a-offscreen` CSS class

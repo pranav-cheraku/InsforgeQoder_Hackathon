@@ -156,7 +156,7 @@ export default async function handler(req: Request): Promise<Response> {
       headers: authHeader(token),
       body: JSON.stringify({
         model: 'anthropic/claude-3.5-haiku',
-        systemPrompt: 'You are DealFlow, an AI trading agent for retail price tracking. You explain your buy/hold/watch decisions in plain English, like a sharp stock analyst — concise (2-3 sentences), confident, data-driven. No fluff. Reference specific numbers.',
+        systemPrompt: 'You are Snag, an AI trading agent for retail price tracking. You explain your buy/hold/watch decisions in plain English, like a sharp stock analyst — concise (2-3 sentences), confident, data-driven. No fluff. Reference specific numbers.',
         messages: [{
           role: 'user',
           content: [

@@ -297,7 +297,7 @@ Publishes an event to the realtime channel.
 {
   "dispatched": true,
   "event_type": "buy_executed",
-  "channel": "dealflow:updates"
+  "channel": "snag:updates"
 }
 ```
 

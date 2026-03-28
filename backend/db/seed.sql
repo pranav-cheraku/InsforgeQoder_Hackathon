@@ -1,10 +1,10 @@
--- DealFlow Demo Seed Data
+-- Snag Demo Seed Data
 -- Run AFTER schema.sql to populate realistic demo data for the hackathon.
 -- This gives you 5 products with 30 days of price history, seeded for a compelling demo.
 
 -- Demo user (use the actual UUID from Insforge auth after signup)
 insert into public.users (id, email, display_name, budget)
-values ('00000000-0000-0000-0000-000000000001', 'demo@dealflow.ai', 'Demo User', 1000.00)
+values ('00000000-0000-0000-0000-000000000001', 'demo@snag.ai', 'Demo User', 1000.00)
 on conflict do nothing;
 
 -- ─── Wishlist Items ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-# DealFlow Backend — Implementation Plan
+# Snag Backend — Implementation Plan
 
 **Deadline:** March 29 2026
 **Runtime:** Deno (InsForge Edge Functions) + Python FastAPI

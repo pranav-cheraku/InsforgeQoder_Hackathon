@@ -82,8 +82,8 @@ Completed "purchases" executed by the agent.
 
 | Pattern | Purpose |
 |---------|---------|
-| `dealflow:updates` | Global agent events (BUY/WATCH/HOLD decisions, price updates) |
-| `dealflow:user:{user_id}` | Per-user notifications |
+| `snag:updates` | Global agent events (BUY/WATCH/HOLD decisions, price updates) |
+| `snag:user:{user_id}` | Per-user notifications |
 
 Events published:
 - `buy_pending` — agent decided BUY, awaiting user confirmation

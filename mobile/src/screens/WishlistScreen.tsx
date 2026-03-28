@@ -144,7 +144,7 @@ export const WishlistScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.brand}>drip.</Text>
+        <Text style={styles.brand}>snag.</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn}>
             <Bell size={20} color={colors.foreground} />

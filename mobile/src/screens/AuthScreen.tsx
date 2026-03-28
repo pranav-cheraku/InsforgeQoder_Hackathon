@@ -73,7 +73,7 @@ export default function AuthScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.inner}>
-          <Text style={styles.logo}>DealFlow</Text>
+          <Text style={styles.logo}>Snag</Text>
           <Text style={styles.tagline}>Your AI trading agent for shopping</Text>
 
           <View style={styles.card}>
@@ -121,7 +121,7 @@ export default function AuthScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.inner}>
-        <Text style={styles.logo}>DealFlow</Text>
+        <Text style={styles.logo}>Snag</Text>
         <Text style={styles.tagline}>Your AI trading agent for shopping</Text>
 
         <View style={styles.card}>

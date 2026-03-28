@@ -65,7 +65,7 @@ export const ActivityScreen = () => {
   // Refresh on buy_executed realtime event
   useEffect(() => {
     if (!user) return;
-    const channel = `dealflow:user:${user.id}`;
+    const channel = `snag:user:${user.id}`;
     insforge.realtime.connect().then(() => {
       insforge.realtime.subscribe(channel);
       insforge.realtime.on('buy_executed', loadTransactions);
@@ -79,7 +79,7 @@ export const ActivityScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.brand}>drip.</Text>
+        <Text style={styles.brand}>snag.</Text>
         <MapPin size={20} color={colors.foreground} />
       </View>
 

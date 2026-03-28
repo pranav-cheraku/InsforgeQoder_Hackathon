@@ -1,4 +1,4 @@
-# DealFlow
+# Snag
 
 > "Robinhood for your Amazon cart — an AI agent that times your purchases so you never overpay again."
 
@@ -16,7 +16,7 @@ backend/                  Python FastAPI — what the mobile app talks to
   services/identifier.py  Claude normalizes product names
   routes/                 items, alerts, prices, search
 
-mobile/                   React Native (Expo) — "drip." app
+mobile/                   React Native (Expo) — "snag." app
   src/api/client.ts       All API calls to FastAPI backend
   src/screens/            Wishlist, Deals, Activity, ItemDetail, Search
 

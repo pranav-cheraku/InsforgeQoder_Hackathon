@@ -68,7 +68,7 @@ export const DealsScreen = () => {
 
   useEffect(() => {
     if (!user) return;
-    const channel = `dealflow:user:${user.id}`;
+    const channel = `snag:user:${user.id}`;
     insforge.realtime.connect().then(() => {
       insforge.realtime.subscribe(channel);
       insforge.realtime.on('price_update', loadItems);
@@ -101,7 +101,7 @@ export const DealsScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.brand}>drip.</Text>
+        <Text style={styles.brand}>snag.</Text>
       </View>
 
       {/* Bought notification banner */}

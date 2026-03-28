@@ -14,7 +14,7 @@ from routes import search as search_router
 from pydantic import BaseModel as _BaseModel
 from services.search import search_products as _search_products
 
-app = FastAPI(title="drip. backend")
+app = FastAPI(title="snag. backend")
 
 app.add_middleware(
     CORSMiddleware,

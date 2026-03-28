@@ -1,4 +1,4 @@
--- DealFlow Database Schema
+-- Snag Database Schema
 -- Run this in your Insforge SQL editor to initialize the database.
 
 -- Enable UUID extension

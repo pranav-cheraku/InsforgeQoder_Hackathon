@@ -18,7 +18,7 @@ class DecisionExplainer:
         s = decision.signals
         pct_vs_target = ((decision.current_price - decision.target_price) / decision.target_price) * 100
 
-        prompt = f"""You are DealFlow, an AI shopping agent. Explain your decision in 2-3 sentences.
+        prompt = f"""You are Snag, an AI shopping agent. Explain your decision in 2-3 sentences.
 Be specific with numbers. Sound like a confident trading algorithm, not a chatbot.
 Do NOT start with "I" — start with the most important fact.
 

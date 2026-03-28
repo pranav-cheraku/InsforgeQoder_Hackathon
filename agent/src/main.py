@@ -1,5 +1,5 @@
 """
-DealFlow Agent Worker — FastAPI server
+Snag Agent Worker — FastAPI server
 
 Receives scrape jobs from the Insforge edge function (scrape-trigger),
 scrapes prices, runs the trading algorithm, generates reasoning, and
@@ -18,7 +18,7 @@ from .trading.signals import PricePoint
 from .trading.decision import evaluate, Action
 from .reasoning.explainer import explainer
 
-app = FastAPI(title="DealFlow Agent Worker")
+app = FastAPI(title="Snag Agent Worker")
 
 
 class ScrapeJob(BaseModel):

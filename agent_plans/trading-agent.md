@@ -15,7 +15,7 @@ The core agent brain. Analyzes price history for a wishlist item and makes a BUY
 - Compute 4 signal indicators with weighted scoring
 - Generate human-readable reasoning via InsForge AI Gateway (Claude Haiku)
 - On BUY: set `wishlist_items.status = 'pending_buy'`, publish `buy_pending` event
-- On WATCH/HOLD: publish `agent_decision` event to `dealflow:updates` realtime channel
+- On WATCH/HOLD: publish `agent_decision` event to `snag:updates` realtime channel
 
 ## Signals & Weights
 
@@ -48,7 +48,7 @@ const { data } = await insforge.functions.invoke('trading-agent', {
 
 ## LLM System Prompt
 ```
-You are DealFlow, an AI trading agent for retail price tracking.
+You are Snag, an AI trading agent for retail price tracking.
 You explain your buy/hold/watch decisions in plain English, like a sharp stock analyst would —
 concise (2-3 sentences), confident, data-driven. No fluff. Reference specific numbers.
 ```

@@ -11,8 +11,8 @@
  *   price_alert    — price dropped below target
  *
  * Channels:
- *   dealflow:updates        — global feed
- *   dealflow:user:{user_id} — per-user private channel
+ *   snag:updates        — global feed
+ *   snag:user:{user_id} — per-user private channel
  */
 
 import { createClient } from 'npm:@insforge/sdk'
@@ -73,19 +73,19 @@ export default async function handler(req: Request): Promise<Response> {
     })
     await client.realtime.connect()
     await Promise.all([
-      client.realtime.publish('dealflow:updates', event_type, event),
-      client.realtime.publish(`dealflow:user:${user_id}`, event_type, event),
+      client.realtime.publish('snag:updates', event_type, event),
+      client.realtime.publish(`snag:user:${user_id}`, event_type, event),
     ])
   } catch (e: unknown) {
     console.error('[notification-dispatcher] realtime publish failed:', (e as Error).message)
   }
 
-  console.log(`[notification-dispatcher] ${event_type} → dealflow:user:${user_id}`, product_name)
+  console.log(`[notification-dispatcher] ${event_type} → snag:user:${user_id}`, product_name)
 
   return json({
     dispatched: true,
     event_type,
-    channels: ['dealflow:updates', `dealflow:user:${user_id}`],
+    channels: ['snag:updates', `snag:user:${user_id}`],
     payload: event,
   })
 }
