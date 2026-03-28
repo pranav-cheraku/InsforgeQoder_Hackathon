@@ -1,9 +1,9 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, SafeAreaView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, SafeAreaView, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { wishlistItems, type WishlistItem } from '../data/mockData';
+import { getItems, type ApiItem } from '../api/client';
 import { ItemCard } from '../components/ItemCard';
 import { colors, fonts, spacing } from '../theme/colors';
 import type { DealsStackParamList } from '../../App';
@@ -11,17 +11,35 @@ import type { DealsStackParamList } from '../../App';
 type NavProp = NativeStackNavigationProp<DealsStackParamList, 'DealsMain'>;
 
 export const DealsScreen = () => {
+  const [items, setItems] = useState<ApiItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation<NavProp>();
 
-  const deals = [...wishlistItems]
+  const load = useCallback(async () => {
+    try {
+      setItems(await getItems());
+    } catch (e) {
+      // silently fail
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const deals = items
+    .filter((item) => item.best_price != null && item.avg_price != null)
     .map((item) => {
-      const bestPrice = Math.min(...item.sources.map((s) => s.price));
-      const pctBelow = Math.round(((item.avgPrice - bestPrice) / item.avgPrice) * 100);
-      return { ...item, bestPrice, pctBelow };
+      const pctBelow = Math.round(((item.avg_price! - item.best_price!) / item.avg_price!) * 100);
+      return { ...item, pctBelow };
     })
     .sort((a, b) => b.pctBelow - a.pctBelow);
 
-  const handleSelectItem = (item: WishlistItem) => {
+  const handleSelectItem = (item: ApiItem) => {
     navigation.navigate('ItemDetail', { item });
   };
 
@@ -44,14 +62,15 @@ export const DealsScreen = () => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         renderItem={({ item, index }) => (
           <ItemCard
             item={item}
             onPress={handleSelectItem}
-            showBadge={index === 0}
+            showBadge={index === 0 && item.pctBelow > 0}
             badgeLabel="🔥 Hot deal"
-            priceLabel={`$${item.bestPrice}`}
-            priceSub={`-${item.pctBelow}%`}
+            priceLabel={`$${item.best_price}`}
+            priceSub={item.pctBelow > 0 ? `-${item.pctBelow}%` : undefined}
           />
         )}
       />

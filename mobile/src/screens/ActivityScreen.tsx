@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,30 @@ import {
 } from 'react-native';
 import { MapPin, CheckCircle } from 'lucide-react-native';
 
-import { activityItems } from '../data/mockData';
+import {
+  getAlerts,
+  dismissAlert,
+  approveAlert,
+  type ApiAlert,
+  type OrderConfirmation,
+} from '../api/client';
 import { colors, fonts, radius, spacing } from '../theme/colors';
 
-type AgentState = 'pending' | 'bought' | 'skipped';
+function dotColorForAlert(alert: ApiAlert): string {
+  if (alert.alert_type === 'target_price') return colors.primary;
+  if (alert.alert_type === 'price_drop') return colors.dealGreen;
+  return colors.dotGray;
+}
 
-const DOT_COLORS: Record<string, string> = {
-  red: colors.primary,
-  green: colors.dealGreen,
-  gray: colors.dotGray,
-};
+function timeAgo(isoString: string): string {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 function PulseDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -36,17 +50,40 @@ function PulseDot({ color }: { color: string }) {
   }, [scale]);
 
   return (
-    <Animated.View
-      style={[
-        styles.dot,
-        { backgroundColor: color, transform: [{ scale }] },
-      ]}
-    />
+    <Animated.View style={[styles.dot, { backgroundColor: color, transform: [{ scale }] }]} />
   );
 }
 
 export const ActivityScreen = () => {
-  const [agentState, setAgentState] = useState<AgentState>('pending');
+  const [alerts, setAlerts] = useState<ApiAlert[]>([]);
+  const [order, setOrder] = useState<OrderConfirmation | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setAlerts(await getAlerts());
+    } catch (e) {
+      // silently fail
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const pendingAlert = alerts.find((a) => a.requires_permission && !a.dismissed);
+  const activityAlerts = alerts.filter((a) => !a.requires_permission || a.id !== pendingAlert?.id);
+
+  const handleSkip = async () => {
+    if (!pendingAlert) return;
+    await dismissAlert(pendingAlert.id);
+    setOrder(null);
+    await load();
+  };
+
+  const handleBuy = async () => {
+    if (!pendingAlert) return;
+    const confirmation = await approveAlert(pendingAlert.id);
+    setOrder(confirmation);
+    await load();
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,63 +95,59 @@ export const ActivityScreen = () => {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Agent permission card */}
-        {agentState === 'pending' && (
+        {pendingAlert && !order && (
           <View style={styles.agentCard}>
             <Text style={styles.agentTitle}>Agent wants to buy</Text>
-            <Text style={styles.agentBody}>
-              Sony WH-1000XM5 hit your target price of{' '}
-              <Text style={styles.agentBold}>$249</Text> on eBay (new, free shipping).{'\n'}
-              This is the lowest price in 90 days. Shall I complete the purchase?
+            <Text style={styles.agentBody}>{pendingAlert.message}</Text>
+            <Text style={styles.agentMeta}>
+              ${pendingAlert.price} · {pendingAlert.source_name} · Ships in 2 days
             </Text>
-            <Text style={styles.agentMeta}>$249 · eBay · Ships in 2 days</Text>
             <View style={styles.agentActions}>
-              <TouchableOpacity
-                style={styles.skipBtn}
-                onPress={() => setAgentState('skipped')}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity style={styles.skipBtn} onPress={handleSkip} activeOpacity={0.7}>
                 <Text style={styles.skipText}>Skip</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.buyBtn}
-                onPress={() => setAgentState('bought')}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity style={styles.buyBtn} onPress={handleBuy} activeOpacity={0.8}>
                 <Text style={styles.buyText}>Buy now</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {agentState === 'bought' && (
+        {order && (
           <View style={styles.successCard}>
             <CheckCircle size={24} color={colors.dealGreen} />
             <View style={styles.successText}>
-              <Text style={styles.successTitle}>Order placed</Text>
-              <Text style={styles.successMeta}>Confirmation sent.</Text>
+              <Text style={styles.successTitle}>Order placed · {order.order_id}</Text>
+              <Text style={styles.successMeta}>
+                {order.item_name} · ${order.price} · {order.estimated_delivery}
+              </Text>
             </View>
           </View>
         )}
 
         {/* Recent Activity */}
-        <Text style={styles.sectionLabel}>Recent Activity</Text>
-        <View style={styles.activityList}>
-          {activityItems.map((item) => (
-            <View key={item.id} style={styles.activityRow}>
-              <View style={styles.dotWrapper}>
-                <PulseDot color={DOT_COLORS[item.dot]} />
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityText}>
-                  <Text style={styles.activityTitle}>{item.title}</Text>
-                  {'  '}
-                  <Text style={styles.activityDesc}>{item.description}</Text>
-                </Text>
-                <Text style={styles.activityTime}>{item.time}</Text>
-              </View>
+        {activityAlerts.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>Recent Activity</Text>
+            <View style={styles.activityList}>
+              {activityAlerts.map((alert) => (
+                <View key={alert.id} style={styles.activityRow}>
+                  <View style={styles.dotWrapper}>
+                    <PulseDot color={dotColorForAlert(alert)} />
+                  </View>
+                  <View style={styles.activityContent}>
+                    <Text style={styles.activityText}>
+                      <Text style={styles.activityTitle}>{alert.source_name}</Text>
+                      {'  '}
+                      <Text style={styles.activityDesc}>{alert.message}</Text>
+                    </Text>
+                    <Text style={styles.activityTime}>{timeAgo(alert.created_at)}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -162,9 +195,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.foreground,
     lineHeight: 20,
-  },
-  agentBold: {
-    fontFamily: fonts.sansBold,
   },
   agentMeta: {
     fontFamily: fonts.sansRegular,

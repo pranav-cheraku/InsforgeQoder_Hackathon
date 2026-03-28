@@ -24,17 +24,19 @@ import { DealsScreen } from './src/screens/DealsScreen';
 import { ActivityScreen } from './src/screens/ActivityScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { ItemDetailScreen } from './src/screens/ItemDetailScreen';
+import { SearchResultsScreen } from './src/screens/SearchResultsScreen';
 import { colors, fonts } from './src/theme/colors';
-import type { WishlistItem } from './src/data/mockData';
+import type { ApiItem } from './src/api/client';
 
 export type WishlistStackParamList = {
   WishlistMain: undefined;
-  ItemDetail: { item: WishlistItem };
+  ItemDetail: { item: ApiItem };
+  SearchResults: { query: string };
 };
 
 export type DealsStackParamList = {
   DealsMain: undefined;
-  ItemDetail: { item: WishlistItem };
+  ItemDetail: { item: ApiItem };
 };
 
 const WishlistStack = createNativeStackNavigator<WishlistStackParamList>();
@@ -46,6 +48,7 @@ function WishlistStackScreen() {
     <WishlistStack.Navigator screenOptions={{ headerShown: false }}>
       <WishlistStack.Screen name="WishlistMain" component={WishlistScreen} />
       <WishlistStack.Screen name="ItemDetail" component={ItemDetailScreen} />
+      <WishlistStack.Screen name="SearchResults" component={SearchResultsScreen} />
     </WishlistStack.Navigator>
   );
 }
