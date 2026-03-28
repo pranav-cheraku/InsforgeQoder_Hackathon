@@ -1,4 +1,8 @@
 
+# Environment (secrets go via insforge cli secrets, not .env)
+.env
+.env.local
+
 # InsForge & AI agent skills
 .insforge
 .agent
