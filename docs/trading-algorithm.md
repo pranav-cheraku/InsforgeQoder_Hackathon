@@ -1,6 +1,6 @@
 # Trading Algorithm
 
-The InsForge `trading-agent` edge function uses a composite scoring system adapted from quantitative trading strategies. It reads price data written by the FastAPI backend scraper and decides whether to BUY, WATCH, or HOLD.
+Snag's `trading-agent` edge function uses a composite scoring system adapted from quantitative trading strategies. It reads price data written by the FastAPI backend scraper and decides whether to BUY, WATCH, or HOLD.
 
 ## Signal Indicators
 

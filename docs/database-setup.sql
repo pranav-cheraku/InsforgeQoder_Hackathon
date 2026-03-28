@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
   current_price DECIMAL(10,2)  DEFAULT 0,
   highest_price DECIMAL(10,2)  DEFAULT 0,
   status        VARCHAR(20)    NOT NULL DEFAULT 'watching'
-                               CHECK (status IN ('watching', 'bought', 'paused')),
+                               CHECK (status IN ('watching', 'pending_buy', 'bought', 'paused')),
   created_at    TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
@@ -141,7 +141,11 @@ CREATE INDEX IF NOT EXISTS idx_transactions_decided ON transactions(decided_at D
 INSERT INTO realtime.channels (pattern, description, enabled)
 VALUES
   ('snag:updates', 'Global Snag agent events and price updates', true),
+<<<<<<< HEAD
   ('snag:user:%',  'Per-user notification channel',                  true)
+=======
+  ('snag:user:%',  'Per-user notification channel',              true)
+>>>>>>> e3103593a5a5ef49f17de68a17f0ec664359eff2
 ON CONFLICT (pattern) DO UPDATE SET enabled = true;
 
 

@@ -7,7 +7,11 @@ Snag is an autonomous AI shopping agent that monitors product prices using stock
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                  Mobile App (React Native/Expo)                  │
+<<<<<<< HEAD
 │   "snag." — talks to FastAPI backend at localhost:8000          │
+=======
+│   "Snag" — talks to FastAPI backend at localhost:8000           │
+>>>>>>> e3103593a5a5ef49f17de68a17f0ec664359eff2
 └──────────────────────┬──────────────────────────────────────────┘
                        │ REST API
 ┌──────────────────────▼──────────────────────────────────────────┐
