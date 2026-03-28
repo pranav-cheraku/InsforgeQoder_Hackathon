@@ -20,6 +20,8 @@ import type { WishlistItem } from '../types';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+const API_BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+
 type NavProp = NativeStackNavigationProp<WishlistStackParamList, 'WishlistMain'>;
 
 export const WishlistScreen = () => {
@@ -29,6 +31,7 @@ export const WishlistScreen = () => {
   const [targetPrice, setTargetPrice] = useState('');
   const [addingItem, setAddingItem] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const navigation = useNavigation<NavProp>();
   const { user } = useAuth();
 
@@ -58,37 +61,75 @@ export const WishlistScreen = () => {
     const text = url.trim();
     if (!text || !user) return;
     setAddError(null);
+    setSuccessMsg(null);
 
     const isUrl = text.startsWith('http://') || text.startsWith('https://');
-    if (!isUrl) {
-      setUrl('');
-      navigation.navigate('SearchResults', { query: text });
+
+    if (isUrl) {
+      const price = parseFloat(targetPrice);
+      if (isNaN(price) || price <= 0) {
+        setAddError('Enter a target price to track this URL.');
+        return;
+      }
+      setAddingItem(true);
+      try {
+        const newItem = await api.wishlist.add({
+          user_id: user.id,
+          product_url: text,
+          product_name: null,
+          retailer: null,
+          image_url: null,
+          target_price: price,
+          status: 'watching',
+        });
+        api.agent.triggerScrape(newItem.id).catch(() => {});
+        setUrl('');
+        setTargetPrice('');
+        setSuccessMsg('Added! Agent is monitoring.');
+        setTimeout(() => setSuccessMsg(null), 3000);
+        await loadItems();
+      } catch (e: any) {
+        console.error('[Wishlist] add failed:', e);
+        setAddError(e?.message ?? 'Failed to add item. Try again.');
+      } finally {
+        setAddingItem(false);
+      }
       return;
     }
 
-    const price = parseFloat(targetPrice);
-    if (isNaN(price) || price <= 0) {
-      setAddError('Enter a target price to track this URL.');
-      return;
-    }
-
+    // Natural language — auto-identify best product match
     setAddingItem(true);
     try {
-      await api.wishlist.add({
+      const res = await fetch(`${API_BASE}/identify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? `Server error ${res.status}`);
+      }
+      const identified = await res.json();
+      if (!identified.product_url) throw new Error('Could not find a product URL. Try being more specific.');
+
+      const newItem = await api.wishlist.add({
         user_id: user.id,
-        product_url: text,
-        product_name: null,
-        retailer: null,
+        product_url: identified.product_url,
+        product_name: identified.product_name,
+        retailer: identified.retailer,
         image_url: null,
-        target_price: price,
+        target_price: identified.price_estimate ?? 0,
         status: 'watching',
       });
+      api.agent.triggerScrape(newItem.id).catch(() => {});
       setUrl('');
       setTargetPrice('');
+      setSuccessMsg(`Monitoring "${identified.product_name}"`);
+      setTimeout(() => setSuccessMsg(null), 3000);
       await loadItems();
     } catch (e: any) {
-      console.error('[Wishlist] add failed:', e);
-      setAddError(e?.message ?? 'Failed to add item. Try again.');
+      console.error('[Wishlist] identify failed:', e);
+      setAddError(e?.message ?? 'Could not identify product. Try again.');
     } finally {
       setAddingItem(false);
     }
@@ -117,7 +158,7 @@ export const WishlistScreen = () => {
       {/* Add item input */}
       <View style={styles.inputWrapper}>
         <TextInput
-          placeholder="Search or paste URL..."
+          placeholder="What are you looking for?"
           placeholderTextColor="rgba(255,255,255,0.5)"
           style={[styles.input, styles.inputUrl]}
           value={url}
@@ -150,6 +191,8 @@ export const WishlistScreen = () => {
 
       {addError ? (
         <Text style={styles.addError}>{addError}</Text>
+      ) : successMsg ? (
+        <Text style={styles.successMsg}>{successMsg}</Text>
       ) : null}
 
       {loading ? (
@@ -281,6 +324,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansRegular,
     fontSize: 12,
     color: '#ff6b6b',
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  successMsg: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: colors.dealGreen,
     paddingHorizontal: spacing.lg,
     marginTop: spacing.xs,
     marginBottom: spacing.sm,

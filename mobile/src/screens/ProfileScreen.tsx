@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Alert, TextInput, ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Mail, Wallet, Bell, LogOut, ChevronRight } from 'lucide-react-native';
+import { User, Mail, Wallet, Bell, LogOut, Pencil, Check, X, ChevronRight } from 'lucide-react-native';
 import { colors, fonts, spacing, radius } from '../theme/colors';
 import { insforge } from '../services/insforge';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +18,10 @@ interface UserProfile {
 export const ProfileScreen = () => {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -36,6 +43,36 @@ export const ProfileScreen = () => {
     ]);
   }
 
+  function startEditing() {
+    setNameInput(displayName);
+    setSaveError(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+    setSaveError(null);
+  }
+
+  async function saveName() {
+    const name = nameInput.trim();
+    if (!name || !user) return;
+    setSaving(true);
+    setSaveError(null);
+    const { error } = await insforge.database
+      .from('users')
+      .update({ display_name: name })
+      .eq('id', user.id);
+    setSaving(false);
+    if (error) {
+      console.error('[Profile] update name error:', error);
+      setSaveError(error.message);
+    } else {
+      setProfile(prev => prev ? { ...prev, display_name: name } : prev);
+      setEditing(false);
+    }
+  }
+
   const displayEmail = profile?.email ?? user?.email ?? '—';
   const displayName = profile?.display_name ?? displayEmail.split('@')[0];
 
@@ -45,7 +82,7 @@ export const ProfileScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Text style={styles.heading}>Profile</Text>
 
         {/* Avatar + name */}
@@ -59,7 +96,45 @@ export const ProfileScreen = () => {
 
         {/* Info rows */}
         <View style={styles.section}>
-          <Row icon={<User size={16} color={colors.mutedForeground} />} label="Name" value={displayName} />
+          {/* Editable name row */}
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <User size={16} color={colors.mutedForeground} />
+              <Text style={styles.rowLabel}>Name</Text>
+            </View>
+            {editing ? (
+              <View style={styles.editRow}>
+                <TextInput
+                  style={styles.nameInput}
+                  value={nameInput}
+                  onChangeText={setNameInput}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={saveName}
+                  placeholderTextColor={colors.mutedForeground}
+                />
+                {saving ? (
+                  <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 8 }} />
+                ) : (
+                  <>
+                    <TouchableOpacity onPress={saveName} style={styles.iconAction}>
+                      <Check size={16} color={colors.dealGreen} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={cancelEditing} style={styles.iconAction}>
+                      <X size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.editTrigger} onPress={startEditing}>
+                <Text style={styles.rowValue}>{displayName}</Text>
+                <Pencil size={13} color={colors.mutedForeground} style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
+            )}
+          </View>
+          {saveError ? <Text style={styles.saveError}>{saveError}</Text> : null}
+
           <Row icon={<Mail size={16} color={colors.mutedForeground} />} label="Email" value={displayEmail} />
           <Row icon={<Wallet size={16} color={colors.mutedForeground} />} label="Wallet Balance" value={profile ? `$${profile.budget.toFixed(2)}` : '—'} highlight />
         </View>
@@ -131,6 +206,21 @@ const styles = StyleSheet.create({
   rowLabel: { fontFamily: fonts.sansRegular, fontSize: 14, color: colors.foreground },
   rowRight: { flexDirection: 'row', alignItems: 'center' },
   rowValue: { fontFamily: fonts.sansRegular, fontSize: 14, color: colors.mutedForeground },
+
+  editTrigger: { flexDirection: 'row', alignItems: 'center' },
+  editRow: { flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'flex-end' },
+  nameInput: {
+    fontFamily: fonts.sansRegular, fontSize: 14,
+    color: colors.foreground,
+    borderBottomWidth: 1, borderBottomColor: colors.primary,
+    paddingVertical: 2, paddingHorizontal: 4,
+    minWidth: 120, textAlign: 'right',
+  },
+  iconAction: { padding: 6 },
+  saveError: {
+    fontFamily: fonts.sansRegular, fontSize: 12, color: '#ff6b6b',
+    paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
+  },
 
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
