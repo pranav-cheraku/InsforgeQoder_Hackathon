@@ -36,10 +36,10 @@ npx @insforge/cli secrets add ANON_KEY your_anon_key_here
 ## Project Structure
 ```
 insforge/functions/
-  price-scraper/index.ts        — Scrapes product page, writes price_history
-  trading-agent/index.ts        — Scoring engine + LLM reasoning, makes BUY/WATCH/HOLD
-  buy-executor/index.ts         — Records transaction, updates status, deducts wallet
-  notification-dispatcher/index.ts — Pushes realtime events to frontend channel
+  price-scraper/index.js        — Scrapes product page, writes price_history
+  trading-agent/index.js        — Scoring engine + LLM reasoning, makes BUY/WATCH/HOLD
+  buy-executor/index.js         — Records transaction, updates status, deducts wallet
+  notification-dispatcher/index.js — Pushes realtime events to frontend channel
 
 agents/
   trading-agent.md              — Agent definition, signals, deploy instructions
