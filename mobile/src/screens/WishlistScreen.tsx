@@ -28,6 +28,7 @@ export const WishlistScreen = () => {
   const [url, setUrl] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
   const [addingItem, setAddingItem] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const navigation = useNavigation<NavProp>();
   const { user } = useAuth();
 
@@ -47,20 +48,30 @@ export const WishlistScreen = () => {
     loadItems();
   }, [loadItems]);
 
+  // Reload when navigating back from SearchResults
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadItems);
+    return unsubscribe;
+  }, [navigation, loadItems]);
+
   const handleAddItem = async () => {
     const text = url.trim();
     if (!text || !user) return;
+    setAddError(null);
 
     const isUrl = text.startsWith('http://') || text.startsWith('https://');
     if (!isUrl) {
-      // Non-URL: navigate to search
       setUrl('');
       navigation.navigate('SearchResults', { query: text });
       return;
     }
 
     const price = parseFloat(targetPrice);
-    if (isNaN(price) || price <= 0) return;
+    if (isNaN(price) || price <= 0) {
+      setAddError('Enter a target price to track this URL.');
+      return;
+    }
+
     setAddingItem(true);
     try {
       await api.wishlist.add({
@@ -75,8 +86,9 @@ export const WishlistScreen = () => {
       setUrl('');
       setTargetPrice('');
       await loadItems();
-    } catch (e) {
-      console.error('Failed to add item:', e);
+    } catch (e: any) {
+      console.error('[Wishlist] add failed:', e);
+      setAddError(e?.message ?? 'Failed to add item. Try again.');
     } finally {
       setAddingItem(false);
     }
@@ -124,9 +136,9 @@ export const WishlistScreen = () => {
           keyboardType="decimal-pad"
         />
         <TouchableOpacity
-          style={[styles.addBtn, (!url.trim() || !targetPrice) && styles.addBtnDisabled]}
+          style={[styles.addBtn, (!url.trim() || addingItem) && styles.addBtnDisabled]}
           onPress={handleAddItem}
-          disabled={!url.trim() || !targetPrice || addingItem}
+          disabled={!url.trim() || addingItem}
         >
           {addingItem ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -135,6 +147,10 @@ export const WishlistScreen = () => {
           )}
         </TouchableOpacity>
       </View>
+
+      {addError ? (
+        <Text style={styles.addError}>{addError}</Text>
+      ) : null}
 
       {loading ? (
         <View style={styles.center}>
@@ -260,6 +276,14 @@ const styles = StyleSheet.create({
   },
   addBtnDisabled: {
     opacity: 0.4,
+  },
+  addError: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
+    color: '#ff6b6b',
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   sectionLabel: {
     fontFamily: fonts.sansSemiBold,

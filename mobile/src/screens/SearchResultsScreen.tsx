@@ -13,6 +13,8 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { searchProducts, createItem, type SearchResult } from '../api/client';
+import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { colors, fonts, radius, spacing } from '../theme/colors';
 import type { WishlistStackParamList } from '../../App';
 
@@ -23,17 +25,18 @@ export const SearchResultsScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteProps>();
   const { query } = route.params;
+  const { user } = useAuth();
 
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   useEffect(() => {
     const isUrl = query.startsWith('http://') || query.startsWith('https://');
     if (isUrl) {
-      createItem(query, query)
-        .then(() => navigation.navigate('WishlistMain'))
-        .catch(() => navigation.navigate('WishlistMain'));
+      addToWishlist({ name: query, subtitle: '', image_emoji: '📦', price: null, source_name: '', source_url: query })
+        .finally(() => navigation.navigate('WishlistMain'));
       return;
     }
 
@@ -43,14 +46,39 @@ export const SearchResultsScreen = () => {
       .finally(() => setLoading(false));
   }, [query]);
 
+  async function addToWishlist(result: SearchResult) {
+    if (!user) return;
+    // Use the found price as target, defaulting to 0 if unknown
+    const targetPrice = result.price ?? 0;
+    try {
+      await api.wishlist.add({
+        user_id: user.id,
+        product_url: result.source_url || query,
+        product_name: result.name,
+        retailer: result.source_name || null,
+        image_url: null,
+        target_price: targetPrice,
+        status: 'watching',
+      });
+      console.log('[Search] added to InsForge wishlist:', result.name);
+    } catch (e: any) {
+      console.error('[Search] InsForge insert failed:', e);
+      throw e;
+    }
+    // Also fire-and-forget to backend for price tracking
+    createItem(result.name, result.source_url, result.price ?? undefined).catch(() => {});
+  }
+
   const handleAdd = async (result: SearchResult) => {
     setAdding(result.source_url);
+    setAddError(null);
     try {
-      await createItem(result.name, result.source_url, result.price ?? undefined);
-    } catch (e) {
-      // ignore — item creation errors are non-fatal
+      await addToWishlist(result);
+      navigation.navigate('WishlistMain');
+    } catch (e: any) {
+      setAddError(e?.message ?? 'Failed to add item');
+      setAdding(null);
     }
-    navigation.navigate('WishlistMain');
   };
 
   return (
@@ -67,6 +95,12 @@ export const SearchResultsScreen = () => {
           </Text>
         </View>
       </View>
+
+      {addError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{addError}</Text>
+        </View>
+      ) : null}
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -254,6 +288,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.mono,
     fontSize: 15,
     color: colors.mutedForeground,
+  },
+  errorBanner: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: '#3b0000',
+    borderRadius: 8,
+    padding: spacing.md,
+  },
+  errorText: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 13,
+    color: '#ff6b6b',
   },
   addLabel: {
     fontFamily: fonts.sansSemiBold,

@@ -131,7 +131,7 @@ export default function AuthScreen() {
           <TextInput
             style={styles.input}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={v => setEmail(v.trim())}
             placeholder="you@example.com"
             placeholderTextColor={colors.mutedForeground}
             autoCapitalize="none"
