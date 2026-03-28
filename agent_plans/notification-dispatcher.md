@@ -11,8 +11,8 @@ source: insforge/functions/notification-dispatcher/index.js
 Publishes realtime events to InsForge WebSocket channels so the frontend updates instantly.
 
 ## Responsibilities
-- Publish to `dealflow:updates` (global channel, all users)
-- Publish to `dealflow:user:{user_id}` (per-user channel)
+- Publish to `snag:updates` (global channel, all users)
+- Publish to `snag:user:{user_id}` (per-user channel)
 - Enrich events with product name from DB before publishing
 
 ## Events
@@ -46,7 +46,7 @@ await insforge.functions.invoke('notification-dispatcher', {
 ## Frontend Realtime Subscription
 ```ts
 await insforge.realtime.connect()
-await insforge.realtime.subscribe('dealflow:updates')
+await insforge.realtime.subscribe('snag:updates')
 insforge.realtime.on('buy_executed', (payload) => { /* update UI */ })
 insforge.realtime.on('agent_decision', (payload) => { /* show in feed */ })
 insforge.realtime.on('price_update', (payload) => { /* refresh chart */ })
@@ -56,6 +56,6 @@ insforge.realtime.on('price_update', (payload) => { /* refresh chart */ })
 ```sql
 INSERT INTO realtime.channels (pattern, description, enabled)
 VALUES
-  ('dealflow:updates', 'Global agent events', true),
-  ('dealflow:user:%', 'Per-user notifications', true);
+  ('snag:updates', 'Global agent events', true),
+  ('snag:user:%', 'Per-user notifications', true);
 ```

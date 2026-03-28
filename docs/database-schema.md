@@ -38,7 +38,7 @@ Products being tracked by a user.
 | `target_price` | DECIMAL(10,2) | NOT NULL | User's limit order price |
 | `current_price` | DECIMAL(10,2) | null | Latest scraped price |
 | `highest_price` | DECIMAL(10,2) | null | All-time high (for savings calc) |
-| `status` | VARCHAR(20) | 'watching' | watching \| pending_buy \| bought \| paused |
+| `status` | VARCHAR(20) | 'watching' | watching \| pending_buy \| bought \| paused — enforced by CHECK constraint |
 | `created_at` | TIMESTAMPTZ | NOW() | When added |
 
 **RLS:** Full CRUD for item owner only.
@@ -82,8 +82,8 @@ Completed "purchases" executed by the agent.
 
 | Pattern | Purpose |
 |---------|---------|
-| `dealflow:updates` | Global agent events (BUY/WATCH/HOLD decisions, price updates) |
-| `dealflow:user:{user_id}` | Per-user notifications |
+| `snag:updates` | Global agent events (BUY/WATCH/HOLD decisions, price updates) |
+| `snag:user:{user_id}` | Per-user notifications |
 
 Events published:
 - `buy_pending` — agent decided BUY, awaiting user confirmation

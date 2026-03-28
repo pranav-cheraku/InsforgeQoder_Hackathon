@@ -1,7 +1,7 @@
-# DealFlow — CLAUDE.md
+# Snag — CLAUDE.md
 
 ## Project Overview
-DealFlow is an autonomous AI shopping agent built for the Insforge x Qoder AI Agent Hackathon (Seattle, March 29 2026). It monitors product prices across retailers using stock-market-style trading algorithms and auto-"buys" when prices hit optimal lows.
+Snag is an autonomous AI shopping agent built for the Insforge x Qoder AI Agent Hackathon (Seattle, March 29 2026). It monitors product prices across retailers using stock-market-style trading algorithms and auto-"buys" when prices hit optimal lows.
 
 **Pitch:** "Robinhood for your Amazon cart — an AI agent that times your purchases so you never overpay again."
 
@@ -112,6 +112,6 @@ npx @insforge/cli logs function.logs
 
 ## Realtime Channels (mobile subscribes to these)
 ```
-dealflow:updates        — Global: agent_decision, price_update, buy_executed
-dealflow:user:{uid}     — Per-user notifications
+snag:updates        — Global: agent_decision, price_update, buy_executed
+snag:user:{uid}     — Per-user notifications
 ```

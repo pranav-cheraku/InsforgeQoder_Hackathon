@@ -2,12 +2,12 @@
 
 ## Overview
 
-DealFlow is an autonomous AI shopping agent that monitors product prices using stock-market-style trading algorithms and auto-"buys" when prices hit optimal lows.
+Snag is an autonomous AI shopping agent that monitors product prices using stock-market-style trading algorithms and auto-"buys" when prices hit optimal lows.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                  Mobile App (React Native/Expo)                  │
-│   "drip." — talks to FastAPI backend at localhost:8000          │
+│   "Snag" — talks to FastAPI backend at localhost:8000           │
 └──────────────────────┬──────────────────────────────────────────┘
                        │ REST API
 ┌──────────────────────▼──────────────────────────────────────────┐

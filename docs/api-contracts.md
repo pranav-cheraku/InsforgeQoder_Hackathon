@@ -199,8 +199,10 @@ Analyzes price history and makes a BUY / WATCH / HOLD decision.
 **Decision values:** `"BUY"` | `"WATCH"` | `"HOLD"`
 
 **Side effects (on BUY):**
-- Sets `wishlist_items.status = 'pending_buy'`
-- Publishes `buy_pending` event
+- Sets `wishlist_items.status = 'bought'`
+- Inserts transaction record
+- Deducts `buy_price` from `users.budget`
+- Publishes `buy_executed` event
 
 **Side effects (on WATCH / HOLD):**
 - Publishes `agent_decision` event
@@ -297,7 +299,7 @@ Publishes an event to the realtime channel.
 {
   "dispatched": true,
   "event_type": "buy_executed",
-  "channel": "dealflow:updates"
+  "channel": "snag:updates"
 }
 ```
 
