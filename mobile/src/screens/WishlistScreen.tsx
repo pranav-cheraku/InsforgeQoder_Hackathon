@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,25 +7,60 @@ import {
   TextInput,
   FlatList,
   SafeAreaView,
+  RefreshControl,
 } from 'react-native';
 import { Bell, Clock } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { wishlistItems, type WishlistItem } from '../data/mockData';
+import { getItems, getAlerts, type ApiItem } from '../api/client';
 import { ItemCard } from '../components/ItemCard';
 import { colors, fonts, spacing } from '../theme/colors';
 import type { WishlistStackParamList } from '../../App';
 
 type SubTab = 'wishlist' | 'deals' | 'activity';
-
 type NavProp = NativeStackNavigationProp<WishlistStackParamList, 'WishlistMain'>;
 
 export const WishlistScreen = () => {
   const [subTab, setSubTab] = useState<SubTab>('wishlist');
+  const [items, setItems] = useState<ApiItem[]>([]);
+  const [alertCount, setAlertCount] = useState(0);
+  const [inputText, setInputText] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation<NavProp>();
 
-  const handleSelectItem = (item: WishlistItem) => {
+  const load = useCallback(async () => {
+    try {
+      const [fetchedItems, fetchedAlerts] = await Promise.all([getItems(), getAlerts()]);
+      setItems(fetchedItems);
+      setAlertCount(fetchedAlerts.length);
+    } catch (e) {
+      // silently fail — show empty state
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Reload when navigating back from SearchResults
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', load);
+    return unsubscribe;
+  }, [navigation, load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const handleAddItem = () => {
+    const text = inputText.trim();
+    if (!text) return;
+    setInputText('');
+    navigation.navigate('SearchResults', { query: text });
+  };
+
+  const handleSelectItem = (item: ApiItem) => {
     navigation.navigate('ItemDetail', { item });
   };
 
@@ -37,9 +72,11 @@ export const WishlistScreen = () => {
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn}>
             <Bell size={20} color={colors.foreground} />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>3</Text>
-            </View>
+            {alertCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{alertCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn}>
             <Clock size={20} color={colors.foreground} />
@@ -65,20 +102,25 @@ export const WishlistScreen = () => {
           placeholder="Add item or paste URL..."
           placeholderTextColor="rgba(255,255,255,0.5)"
           style={styles.input}
+          value={inputText}
+          onChangeText={setInputText}
+          onSubmitEditing={handleAddItem}
+          returnKeyType="done"
         />
       </View>
 
       {/* Watching label */}
       <View style={styles.watchingRow}>
-        <Text style={styles.watchingLabel}>Watching ({wishlistItems.length})</Text>
+        <Text style={styles.watchingLabel}>Watching ({items.length})</Text>
       </View>
 
       {/* Items list */}
       <FlatList
-        data={wishlistItems}
+        data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         renderItem={({ item }) => (
           <ItemCard item={item} onPress={handleSelectItem} />
         )}

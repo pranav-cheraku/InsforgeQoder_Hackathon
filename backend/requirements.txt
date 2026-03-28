@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+crawl4ai
+anthropic
+sqlalchemy[asyncio]
+asyncpg
+python-dotenv
+httpx
+pydantic

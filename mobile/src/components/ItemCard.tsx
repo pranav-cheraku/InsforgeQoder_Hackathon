@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, fonts, radius, spacing } from '../theme/colors';
-import type { WishlistItem } from '../data/mockData';
+import type { ApiItem } from '../api/client';
 
 interface ItemCardProps {
-  item: WishlistItem;
-  onPress: (item: WishlistItem) => void;
+  item: ApiItem;
+  onPress: (item: ApiItem) => void;
   showBadge?: boolean;
   badgeLabel?: string;
   priceLabel?: string;
@@ -13,7 +13,7 @@ interface ItemCardProps {
 }
 
 export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, priceSub }: ItemCardProps) => {
-  const price = priceLabel ?? `$${item.price}`;
+  const price = priceLabel ?? (item.best_price != null ? `$${item.best_price}` : '—');
   const trendColor =
     item.trend === 'low' ? colors.dealGreen :
     item.trend === 'deal' ? colors.primary :
@@ -28,7 +28,7 @@ export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, pri
     <TouchableOpacity style={styles.card} onPress={() => onPress(item)} activeOpacity={0.7}>
       {/* Thumbnail */}
       <View style={styles.thumb}>
-        <Text style={styles.thumbEmoji}>{item.image}</Text>
+        <Text style={styles.thumbEmoji}>{item.image_emoji}</Text>
       </View>
 
       {/* Info */}
@@ -53,7 +53,7 @@ export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, pri
           <Text style={styles.priceSub}>{priceSub}</Text>
         ) : (
           <Text style={[styles.trendLabel, { color: trendColor }]}>
-            {trendPrefix}{item.trendLabel}
+            {trendPrefix}{item.trend_label}
           </Text>
         )}
       </View>
