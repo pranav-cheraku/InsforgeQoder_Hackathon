@@ -1,6 +1,6 @@
 # Trading Algorithm
 
-The agent uses a composite scoring system adapted from quantitative trading strategies.
+The InsForge `trading-agent` edge function uses a composite scoring system adapted from quantitative trading strategies. It reads price data written by the FastAPI backend scraper and decides whether to BUY, WATCH, or HOLD.
 
 ## Signal Indicators
 
@@ -88,10 +88,22 @@ The LLM generates a human-readable explanation like:
 
 If the LLM call fails, a deterministic fallback reasoning string is generated from the signal values.
 
-## Demo Tuning
+## Price Data Source
 
-For a compelling demo, seed price data so one product is exactly 1 data point away from a BUY trigger:
-- 29 days of declining price data
+Price history consumed by the trading algorithm is written by the **FastAPI backend** (`backend/services/scraper.py`), which uses Claude with the `web_search` tool to fetch real prices across retailers. The InsForge `price-scraper` edge function has been removed.
+
+## Demo Setup
+
+Seed price data so one product is exactly 1 data point away from a BUY trigger:
+- 29 days of declining price data (already in `docs/database-setup.sql`)
 - Insert 1 final price point during the demo → composite crosses 0.75 → BUY fires live
 
-See `docs/database-setup.sql` for the seeding SQL.
+```sql
+INSERT INTO price_history (item_id, price, retailer)
+VALUES ('11111111-0000-0000-0000-000000000001', 278.50, 'amazon');
+
+UPDATE wishlist_items SET current_price = 278.50
+WHERE id = '11111111-0000-0000-0000-000000000001';
+```
+
+Then invoke `trading-agent` — BUY fires live.
