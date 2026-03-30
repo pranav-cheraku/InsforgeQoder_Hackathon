@@ -138,19 +138,7 @@ export const WishlistScreen = () => {
     }
   };
 
-  const handleBuy = async (item: WishlistItem) => {
-    setBuyingId(item.id);
-    try {
-      await api.wishlist.updateStatus(item.id, 'bought');
-      await loadItems();
-    } catch (e) {
-      console.error('[Wishlist] buy failed:', e);
-    } finally {
-      setBuyingId(null);
-    }
-  };
-
-  const watching = items.filter((i) => i.status === 'watching');
+  const watching = items.filter((i) => i.status === 'watching' || i.status === 'pending_buy');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -158,7 +146,7 @@ export const WishlistScreen = () => {
       <View style={styles.header}>
         <Text style={styles.brand}>snag.</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconBtn}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.getParent()?.navigate('Deals')}>
             <Bell size={20} color={colors.foreground} />
             {watching.length > 0 && (
               <View style={styles.badge}>
@@ -234,28 +222,18 @@ export const WishlistScreen = () => {
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={watching}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
           ListHeaderComponent={
-            <>
-              {watching.length > 0 && (
-                <Text style={styles.sectionLabel}>Watching ({watching.length})</Text>
-              )}
-            </>
-          }
-          ListFooterComponent={null}
-          renderItem={({ item }) =>
-            item.status === 'watching' ? (
-              <ItemCard
-                item={item}
-                onPress={(i) => navigation.navigate('ItemDetail', { item: i })}
-                onBuy={() => handleBuy(item)}
-                isBuying={buyingId === item.id}
-              />
+            watching.length > 0 ? (
+              <Text style={styles.sectionLabel}>Watching ({watching.length})</Text>
             ) : null
           }
+          renderItem={({ item }) => (
+            <ItemCard item={item} onPress={(i) => navigation.navigate('ItemDetail', { item: i })} />
+          )}
           ListEmptyComponent={
             <View style={styles.center}>
               <Text style={styles.emptyText}>No items yet. Add a product URL above.</Text>

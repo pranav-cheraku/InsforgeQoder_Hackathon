@@ -5,13 +5,18 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Animated,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MapPin, ShoppingBag } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, fonts, radius, spacing } from '../theme/colors';
-import type { WishlistItem } from '../types';
+import { ItemCard } from '../components/ItemCard';
+import type { Transaction, WishlistItem } from '../types';
+import type { ActivityStackParamList } from '../../App';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -24,26 +29,56 @@ function formatTime(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+type NavProp = NativeStackNavigationProp<ActivityStackParamList>;
+
 export const ActivityScreen = () => {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [boughtItems, setBoughtItems] = useState<WishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavProp>();
 
-  const loadBought = useCallback(() => {
+  const loadData = useCallback(async () => {
     if (!user) return;
-    api.wishlist.getAll(user.id)
-      .then((items) => setBoughtItems(items.filter((i) => i.status === 'bought')))
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    try {
+      const [txs, items] = await Promise.all([
+        api.transactions.getAll(user.id),
+        api.wishlist.getAll(user.id),
+      ]);
+      setTransactions(txs);
+      setBoughtItems(items.filter((i) => i.status === 'bought'));
+    } catch (e) {
+      console.error('Failed to load activity data:', e);
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
-  useEffect(() => { loadBought(); }, [loadBought]);
+  useEffect(() => {
+    if (!user) return;
+    loadData();
+  }, [user, loadData]);
+
+  // Reload whenever this tab comes into focus
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', loadData);
+    return unsub;
+  }, [navigation, loadData]);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', loadBought);
-    return unsubscribe;
-  }, [navigation, loadBought]);
+    if (!user) return;
+    const channel = `snag:user:${user.id}`;
+    insforge.realtime.connect().then(() => {
+      insforge.realtime.subscribe(channel);
+      insforge.realtime.on('buy_executed', loadData);
+    }).catch(console.error);
+    return () => {
+      insforge.realtime.off('buy_executed', loadData);
+      insforge.realtime.unsubscribe(channel);
+    };
+  }, [user, loadData]);
+
+  const hasData = transactions.length > 0 || boughtItems.length > 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -57,7 +92,7 @@ export const ActivityScreen = () => {
           <View style={styles.center}>
             <ActivityIndicator color={colors.primary} />
           </View>
-        ) : boughtItems.length === 0 ? (
+        ) : !hasData ? (
           <View style={styles.center}>
             <ShoppingBag size={32} color={colors.mutedForeground} />
             <Text style={styles.emptyText}>
@@ -66,34 +101,56 @@ export const ActivityScreen = () => {
           </View>
         ) : (
           <>
-            <Text style={styles.sectionLabel}>Purchase History</Text>
-            <View style={styles.activityList}>
-              {boughtItems.map((item) => {
-                const name = item.product_name ?? 'Item';
-                const price = item.current_price > 0 ? `$${item.current_price.toFixed(2)}` : '—';
-                const retailer = item.retailer ?? null;
+            {boughtItems.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>Bought Items</Text>
+                <View style={styles.boughtList}>
+                  {boughtItems.map((item) => (
+                    <ItemCard
+                      key={item.id}
+                      item={item}
+                      onPress={(i) => navigation.navigate('ItemDetail', { item: i })}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
 
-                return (
-                  <View key={item.id} style={styles.activityRow}>
-                    <View style={styles.thumbSmall}>
-                      <Text style={styles.thumbText}>
-                        {name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)}
-                      </Text>
-                    </View>
-                    <View style={styles.activityContent}>
-                      <Text style={styles.activityTitle} numberOfLines={1}>{name}</Text>
-                      <Text style={styles.activityDesc}>
-                        {price}{retailer ? ` · ${retailer}` : ''}
-                      </Text>
-                      <Text style={styles.activityTime}>{formatTime(item.created_at)}</Text>
-                    </View>
-                    <View style={styles.boughtBadge}>
-                      <Text style={styles.boughtBadgeText}>Bought</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
+            {transactions.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, { marginTop: spacing.xl }]}>Purchase History</Text>
+                <View style={styles.activityList}>
+                  {transactions.map((tx) => {
+                    const name = tx.wishlist_items?.product_name ?? 'Item';
+                    const saved = tx.saved_amount > 0 ? ` · saved $${tx.saved_amount.toFixed(2)}` : '';
+                    const dotColor = tx.saved_amount > 10 ? colors.dealGreen : colors.primary;
+
+                    return (
+                      <View key={tx.id} style={styles.activityRow}>
+                        <View style={styles.dotWrapper}>
+                          <PulseDot color={dotColor} />
+                        </View>
+                        <View style={styles.activityContent}>
+                          <Text style={styles.activityText}>
+                            <Text style={styles.activityTitle}>{name}</Text>
+                            {'  '}
+                            <Text style={styles.activityDesc}>
+                              bought for ${tx.buy_price.toFixed(2)}{saved}
+                            </Text>
+                          </Text>
+                          {tx.reasoning && (
+                            <View style={styles.reasoningCard}>
+                              <Text style={styles.reasoningText} numberOfLines={3}>{tx.reasoning}</Text>
+                            </View>
+                          )}
+                          <Text style={styles.activityTime}>{formatTime(tx.decided_at)}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </>
+            )}
           </>
         )}
       </ScrollView>
@@ -147,6 +204,9 @@ const styles = StyleSheet.create({
   },
   activityList: {
     gap: spacing.sm,
+  },
+  boughtList: {
+    gap: spacing.md,
   },
   activityRow: {
     flexDirection: 'row',

@@ -41,8 +41,14 @@ export type DealsStackParamList = {
   ItemDetail: { item: WishlistItem };
 };
 
+export type ActivityStackParamList = {
+  ActivityMain: undefined;
+  ItemDetail: { item: WishlistItem };
+};
+
 const WishlistStack = createNativeStackNavigator<WishlistStackParamList>();
 const DealsStack = createNativeStackNavigator<DealsStackParamList>();
+const ActivityStack = createNativeStackNavigator<ActivityStackParamList>();
 const Tab = createBottomTabNavigator();
 
 function WishlistStackScreen() {
@@ -61,6 +67,15 @@ function DealsStackScreen() {
       <DealsStack.Screen name="DealsMain" component={DealsScreen} />
       <DealsStack.Screen name="ItemDetail" component={ItemDetailScreen} />
     </DealsStack.Navigator>
+  );
+}
+
+function ActivityStackScreen() {
+  return (
+    <ActivityStack.Navigator screenOptions={{ headerShown: false }}>
+      <ActivityStack.Screen name="ActivityMain" component={ActivityScreen} />
+      <ActivityStack.Screen name="ItemDetail" component={ItemDetailScreen} />
+    </ActivityStack.Navigator>
   );
 }
 
@@ -107,7 +122,7 @@ function Main() {
       >
         <Tab.Screen name="Wishlist" component={WishlistStackScreen} />
         <Tab.Screen name="Deals" component={DealsStackScreen} />
-        <Tab.Screen name="Activity" component={ActivityScreen} />
+        <Tab.Screen name="Activity" component={ActivityStackScreen} />
         <Tab.Screen name="Profile" component={ProfileScreen} />
       </Tab.Navigator>
     </NavigationContainer>

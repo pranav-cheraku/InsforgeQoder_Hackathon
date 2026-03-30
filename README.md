@@ -42,17 +42,11 @@ backend/                        Python FastAPI — price scraping + alert engine
   routes/prices.py              GET price history
   routes/search.py              POST product search
 
-<<<<<<< HEAD
-mobile/                   React Native (Expo) — "snag." app
-  src/api/client.ts       All API calls to FastAPI backend
-  src/screens/            Wishlist, Deals, Activity, ItemDetail, Search
-=======
 insforge/functions/             InsForge Edge Functions (Deno) — trading agent pipeline
   trading-agent/                4-signal composite scoring + LLM reasoning → BUY/WATCH/HOLD
   confirm-buy/                  User-triggered purchase execution
   buy-executor/                 Record transaction, update wallet
   notification-dispatcher/      Realtime event publishing
->>>>>>> e3103593a5a5ef49f17de68a17f0ec664359eff2
 
 mobile/                         React Native (Expo) app
   src/screens/                  Wishlist, Deals, Activity, ItemDetail, Auth, Profile
