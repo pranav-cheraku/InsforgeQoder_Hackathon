@@ -55,6 +55,14 @@ export const api = {
       if (error) throw error;
       return data;
     },
+
+    async skip(itemId: string) {
+      const { error } = await insforge.database
+        .from('wishlist_items')
+        .update({ status: 'watching' })
+        .eq('id', itemId);
+      if (error) throw error;
+    },
   },
 
   priceHistory: {

@@ -114,88 +114,49 @@ async def handle_scrape(job: ScrapeJob):
 
     reasoning = None
 
-    # 5. On BUY signal: execute purchase autonomously
+    # 5. On BUY signal: set pending_buy and notify user for approval
     if decision.action == Action.BUY:
         reasoning = explainer.explain(decision, product.product_name, len(history))
-        buy_price = product.current_price
 
-        # Fetch user_id and highest_price for transaction
+        # Fetch user_id for the notification
         async with httpx.AsyncClient() as client:
             item_res = await client.get(
-                f"{settings.insforge_url}/rest/v1/wishlist_items"
-                f"?id=eq.{job.item_id}&select=user_id,highest_price",
+                f"{settings.insforge_url}/rest/v1/wishlist_items?id=eq.{job.item_id}&select=user_id",
                 headers={"apikey": settings.service_key, "Authorization": f"Bearer {settings.service_key}"},
             )
         item_meta = item_res.json()
         user_id = item_meta[0]["user_id"] if item_meta else None
-        market_price = float(item_meta[0]["highest_price"]) if item_meta and item_meta[0].get("highest_price") else buy_price
 
-        headers_rw = {
-            "apikey": settings.service_key,
-            "Authorization": f"Bearer {settings.service_key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-        }
-
-        # 1. Insert transaction (saved_amount is GENERATED ALWAYS — never include it)
-        transaction: dict = {}
-        async with httpx.AsyncClient() as client:
-            tx_res = await client.post(
-                f"{settings.insforge_url}/rest/v1/transactions",
-                headers=headers_rw,
-                json={
-                    "item_id": job.item_id,
-                    "user_id": user_id,
-                    "buy_price": buy_price,
-                    "market_price": market_price,
-                    "reasoning": reasoning,
-                },
-            )
-            if tx_res.is_success:
-                rows = tx_res.json()
-                transaction = rows[0] if isinstance(rows, list) else rows
-
-        # 2. Mark item as bought
+        # Mark item as pending_buy and store AI reasoning
         async with httpx.AsyncClient() as client:
             await client.patch(
                 f"{settings.insforge_url}/rest/v1/wishlist_items?id=eq.{job.item_id}",
-                headers=headers_rw,
-                json={"status": "bought"},
+                headers={
+                    "apikey": settings.service_key,
+                    "Authorization": f"Bearer {settings.service_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"status": "pending_buy", "pending_reasoning": reasoning},
             )
 
-        # 3. Deduct buy_price from user budget
-        if user_id:
-            async with httpx.AsyncClient() as client:
-                user_res = await client.get(
-                    f"{settings.insforge_url}/rest/v1/users?id=eq.{user_id}&select=budget",
-                    headers={"apikey": settings.service_key, "Authorization": f"Bearer {settings.service_key}"},
-                )
-                users = user_res.json()
-                if users:
-                    new_budget = float(users[0]["budget"]) - buy_price
-                    await client.patch(
-                        f"{settings.insforge_url}/rest/v1/users?id=eq.{user_id}",
-                        headers=headers_rw,
-                        json={"budget": new_budget},
-                    )
-
-        # 4. Notify buy_executed via notification-dispatcher
+        # Dispatch buy_ready notification so mobile shows approval prompt
         if user_id:
             notification_url = settings.buy_executor_url.replace("/buy-executor", "/notification-dispatcher")
             try:
                 async with httpx.AsyncClient() as client:
                     await client.post(
                         notification_url,
-                        headers={"Authorization": f"Bearer {settings.service_key}", "Content-Type": "application/json"},
+                        headers={
+                            "Authorization": f"Bearer {settings.service_key}",
+                            "Content-Type": "application/json",
+                        },
                         json={
                             "user_id": user_id,
                             "item_id": job.item_id,
-                            "event_type": "buy_executed",
+                            "event_type": "buy_ready",
                             "payload": {
                                 "product_name": product.product_name,
-                                "buy_price": buy_price,
-                                "market_price": market_price,
-                                "saved_amount": transaction.get("saved_amount", 0),
+                                "buy_price": product.current_price,
                                 "reasoning": reasoning,
                             },
                         },

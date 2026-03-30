@@ -48,8 +48,7 @@ export const SearchResultsScreen = () => {
 
   async function addToWishlist(result: SearchResult) {
     if (!user) return;
-    // Use the found price as target, defaulting to 0 if unknown
-    const targetPrice = result.price ?? 0;
+    const scannedPrice = result.price ?? 0;
     try {
       await api.wishlist.add({
         user_id: user.id,
@@ -57,7 +56,8 @@ export const SearchResultsScreen = () => {
         product_name: result.name,
         retailer: result.source_name || null,
         image_url: null,
-        target_price: targetPrice,
+        current_price: scannedPrice,
+        target_price: scannedPrice,
         status: 'watching',
       });
       console.log('[Search] added to InsForge wishlist:', result.name);
