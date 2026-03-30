@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,27 +18,7 @@ import { ItemCard } from '../components/ItemCard';
 import type { Transaction, WishlistItem } from '../types';
 import type { ActivityStackParamList } from '../../App';
 import { api } from '../services/api';
-import { insforge } from '../services/insforge';
 import { useAuth } from '../context/AuthContext';
-
-function PulseDot({ color }: { color: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scale, { toValue: 1.4, duration: 750, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 750, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [scale]);
-
-  return (
-    <Animated.View style={[styles.dot, { backgroundColor: color, transform: [{ scale }] }]} />
-  );
-}
 
 function formatTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -116,7 +96,7 @@ export const ActivityScreen = () => {
           <View style={styles.center}>
             <ShoppingBag size={32} color={colors.mutedForeground} />
             <Text style={styles.emptyText}>
-              No purchases yet.{'\n'}The agent will buy when prices hit your targets.
+              No purchases yet.{'\n'}Tap the bag icon on any item to buy it.
             </Text>
           </View>
         ) : (
@@ -223,60 +203,66 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   activityList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   boughtList: {
     gap: spacing.md,
   },
   activityRow: {
     flexDirection: 'row',
-    gap: spacing.md,
-  },
-  dotWrapper: {
-    paddingTop: 6,
-    flexShrink: 0,
-    width: 10,
     alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: spacing.md,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  thumbSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.thumb,
+    backgroundColor: colors.muted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  thumbText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    color: colors.mutedForeground,
   },
   activityContent: {
     flex: 1,
     minWidth: 0,
   },
-  activityText: {
-    fontFamily: fonts.sansRegular,
-    fontSize: 14,
-    color: colors.foreground,
-    lineHeight: 20,
-  },
   activityTitle: {
     fontFamily: fonts.sansSemiBold,
+    fontSize: 14,
+    color: colors.foreground,
   },
   activityDesc: {
+    fontFamily: fonts.sansRegular,
+    fontSize: 12,
     color: colors.mutedForeground,
-  },
-  reasoningCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    padding: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  reasoningText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.mutedForeground,
-    lineHeight: 16,
+    marginTop: 2,
   },
   activityTime: {
     fontFamily: fonts.sansRegular,
     fontSize: 11,
     color: colors.mutedForeground,
-    marginTop: 4,
+    marginTop: 2,
+  },
+  boughtBadge: {
+    backgroundColor: colors.dealGreen + '22',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    flexShrink: 0,
+  },
+  boughtBadgeText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    color: colors.dealGreen,
   },
 });

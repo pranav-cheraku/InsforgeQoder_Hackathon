@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { ShoppingBag } from 'lucide-react-native';
 import { colors, fonts, radius, spacing } from '../theme/colors';
 import type { WishlistItem } from '../types';
 
@@ -10,6 +11,8 @@ interface ItemCardProps {
   badgeLabel?: string;
   priceLabel?: string;
   priceSub?: string;
+  onBuy?: () => void;
+  isBuying?: boolean;
 }
 
 function getTrend(item: WishlistItem): { trend: 'deal' | 'low' | 'avg'; label: string } {
@@ -23,7 +26,7 @@ function getTrend(item: WishlistItem): { trend: 'deal' | 'low' | 'avg'; label: s
   return { trend: 'avg', label: 'Avg' };
 }
 
-export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, priceSub }: ItemCardProps) => {
+export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, priceSub, onBuy, isBuying }: ItemCardProps) => {
   const { trend, label } = getTrend(item);
   const displayPrice = priceLabel ?? (item.current_price > 0 ? `$${item.current_price.toFixed(0)}` : '—');
 
@@ -73,6 +76,23 @@ export const ItemCard = ({ item, onPress, showBadge, badgeLabel, priceLabel, pri
           </Text>
         )}
       </View>
+
+      {/* Subtle buy button */}
+      {onBuy && (
+        <TouchableOpacity
+          style={styles.buyBtn}
+          onPress={onBuy}
+          disabled={isBuying}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          {isBuying ? (
+            <ActivityIndicator size="small" color={colors.mutedForeground} />
+          ) : (
+            <ShoppingBag size={16} color={colors.mutedForeground} />
+          )}
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 };
@@ -168,5 +188,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.dealGreen,
     marginTop: 2,
+  },
+  buyBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginLeft: 2,
   },
 });

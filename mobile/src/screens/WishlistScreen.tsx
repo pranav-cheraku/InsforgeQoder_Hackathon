@@ -32,6 +32,7 @@ export const WishlistScreen = () => {
   const [addingItem, setAddingItem] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [buyingId, setBuyingId] = useState<string | null>(null);
   const navigation = useNavigation<NavProp>();
   const { user } = useAuth();
 
